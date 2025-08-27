@@ -1,12 +1,8 @@
 #!/usr/bin/env node
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { Supadata } from '@supadata/js';
 import { z } from 'zod';
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 // Configuration schema
 export const configSchema = z.object({
@@ -123,19 +119,22 @@ async function withRetry<T>(
   }
 }
 
-export default function createServer() {
+export default function createServer({
+  config,
+}: {
+  config: z.infer<typeof configSchema>;
+}) {
   const server = new McpServer({
     name: '@supadata/mcp',
-    version: '1.0.0',
+    version: '1.0.1',
   });
 
-  // Get API key
-  const SUPADATA_API_KEY = process.env.SUPADATA_API_KEY;
+  // Get API key from config
+  const SUPADATA_API_KEY = config.supadataApiKey;
 
   // Check if API key is provided
-  if (!SUPADATA_API_KEY && process.env.CLOUD_SERVICE !== 'true') {
-    console.error('Error: SUPADATA_API_KEY environment variable is required');
-    process.exit(1);
+  if (!SUPADATA_API_KEY) {
+    throw new Error('SUPADATA_API_KEY is required in configuration');
   }
 
   // Register transcript tool
@@ -166,23 +165,17 @@ export default function createServer() {
 **Supported Platforms:** YouTube, TikTok, Instagram, Twitter, and file URLs`,
     transcriptInputSchema,
     async ({ url, lang, text, chunkSize, mode }) => {
-      const apiKey = process.env.CLOUD_SERVICE
-        ? process.env.SUPADATA_API_KEY
-        : SUPADATA_API_KEY;
-
-      if (process.env.CLOUD_SERVICE && !apiKey) {
-        throw new Error('No API key provided');
-      }
-
       const client = new Supadata({
-        apiKey: apiKey as string,
+        apiKey: SUPADATA_API_KEY,
       });
 
       try {
         const transcriptStartTime = Date.now();
-        console.error(
-          `Starting transcript for URL: ${url} with options: ${JSON.stringify({ lang, text, chunkSize, mode })}`
-        );
+        if (config.debug) {
+          console.error(
+            `Starting transcript for URL: ${url} with options: ${JSON.stringify({ lang, text, chunkSize, mode })}`
+          );
+        }
 
         const options: any = { url };
         if (lang) options.lang = lang;
@@ -192,9 +185,11 @@ export default function createServer() {
 
         const response = await client.transcript(options);
 
-        console.error(
-          `Transcript completed in ${Date.now() - transcriptStartTime}ms`
-        );
+        if (config.debug) {
+          console.error(
+            `Transcript completed in ${Date.now() - transcriptStartTime}ms`
+          );
+        }
 
         // Check if response contains a job ID (async processing)
         if (
@@ -261,16 +256,8 @@ export default function createServer() {
 **Tip:** Poll this endpoint periodically until status is 'completed' or 'failed'.`,
     checkTranscriptStatusInputSchema,
     async ({ id }) => {
-      const apiKey = process.env.CLOUD_SERVICE
-        ? process.env.SUPADATA_API_KEY
-        : SUPADATA_API_KEY;
-
-      if (process.env.CLOUD_SERVICE && !apiKey) {
-        throw new Error('No API key provided');
-      }
-
       const client = new Supadata({
-        apiKey: apiKey as string,
+        apiKey: SUPADATA_API_KEY,
       });
 
       const response = await client.transcript.getJobStatus(id);
@@ -314,27 +301,23 @@ export default function createServer() {
 - List of URLs found on the page`,
     scrapeInputSchema,
     async ({ url, noLinks, lang }) => {
-      const apiKey = process.env.CLOUD_SERVICE
-        ? process.env.SUPADATA_API_KEY // In cloud service mode, get from env
-        : SUPADATA_API_KEY;
-
-      if (process.env.CLOUD_SERVICE && !apiKey) {
-        throw new Error('No API key provided');
-      }
-
       const client = new Supadata({
-        apiKey: apiKey as string,
+        apiKey: SUPADATA_API_KEY,
       });
 
       try {
         const scrapeStartTime = Date.now();
-        console.error(
-          `Starting scrape for URL: ${url} with options: ${JSON.stringify({ noLinks, lang })}`
-        );
+        if (config.debug) {
+          console.error(
+            `Starting scrape for URL: ${url} with options: ${JSON.stringify({ noLinks, lang })}`
+          );
+        }
 
         const response = await client.web.scrape(url);
 
-        console.error(`Scrape completed in ${Date.now() - scrapeStartTime}ms`);
+        if (config.debug) {
+          console.error(`Scrape completed in ${Date.now() - scrapeStartTime}ms`);
+        }
 
         return {
           content: [
@@ -378,16 +361,8 @@ export default function createServer() {
 **Returns:** Array of URLs found on the website.`,
     mapInputSchema,
     async ({ url }) => {
-      const apiKey = process.env.CLOUD_SERVICE
-        ? process.env.SUPADATA_API_KEY
-        : SUPADATA_API_KEY;
-
-      if (process.env.CLOUD_SERVICE && !apiKey) {
-        throw new Error('No API key provided');
-      }
-
       const client = new Supadata({
-        apiKey: apiKey as string,
+        apiKey: SUPADATA_API_KEY,
       });
 
       const response = await client.web.map(url);
@@ -435,16 +410,8 @@ export default function createServer() {
 **Important:** Respect robots.txt and website terms of service when crawling web content.`,
     crawlInputSchema,
     async ({ url, limit }) => {
-      const apiKey = process.env.CLOUD_SERVICE
-        ? process.env.SUPADATA_API_KEY
-        : SUPADATA_API_KEY;
-
-      if (process.env.CLOUD_SERVICE && !apiKey) {
-        throw new Error('No API key provided');
-      }
-
       const client = new Supadata({
-        apiKey: apiKey as string,
+        apiKey: SUPADATA_API_KEY,
       });
 
       const response = await withRetry(
@@ -497,16 +464,8 @@ export default function createServer() {
 **Tip:** Poll this endpoint periodically until status is 'completed' or 'failed'.`,
     checkCrawlStatusInputSchema,
     async ({ id }) => {
-      const apiKey = process.env.CLOUD_SERVICE
-        ? process.env.SUPADATA_API_KEY
-        : SUPADATA_API_KEY;
-
-      if (process.env.CLOUD_SERVICE && !apiKey) {
-        throw new Error('No API key provided');
-      }
-
       const client = new Supadata({
-        apiKey: apiKey as string,
+        apiKey: SUPADATA_API_KEY,
       });
 
       const response = await client.web.getCrawlResults(id);
@@ -524,29 +483,3 @@ export default function createServer() {
 
   return server.server;
 }
-
-// Server startup
-async function runServer() {
-  try {
-    console.error('Initializing Supadata MCP Server...');
-
-    const server = createServer();
-    const transport = new StdioServerTransport();
-
-    console.error('Running in stdio mode, logging will be directed to stderr');
-
-    await server.connect(transport);
-
-    console.error('Supadata MCP Server initialized successfully');
-    console.error('Supadata MCP Server running on stdio');
-  } catch (error) {
-    console.error('Fatal error running server:', error);
-    process.exit(1);
-  }
-}
-
-// Only run the server if this file is executed directly
-runServer().catch((error: any) => {
-  console.error('Fatal error running server:', error);
-  process.exit(1);
-});

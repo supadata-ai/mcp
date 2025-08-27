@@ -430,6 +430,9 @@ npm install
 # Build
 npm run build
 
+# Dev (needs Smithery key)
+npm run dev 
+
 # Run tests
 npm test
 ```

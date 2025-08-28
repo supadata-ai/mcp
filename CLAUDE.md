@@ -14,7 +14,10 @@ This is a Model Context Protocol (MCP) server implementation for Supadata web sc
 - `npm run lint` - Run ESLint on TypeScript files
 - `npm run lint:fix` - Run ESLint with auto-fix
 - `npm run format` - Format code with Prettier
-- `npm run start` - Start the compiled server
+- `npm run start` - Start the server (defaults to STDIO transport)
+- `npm run start:stdio` - Start with STDIO transport (legacy mode)
+- `npm run start:http` - Start with HTTP Streamable transport
+- `npm run dev:http` - Start HTTP server on port 3000 for development
 
 ### Single Test Execution
 - `npm run test -- --testNamePattern="should handle scrape request"` - Run specific test
@@ -22,8 +25,27 @@ This is a Model Context Protocol (MCP) server implementation for Supadata web sc
 
 ## Architecture
 
+### Transport Support
+The server supports both transport modes as defined in the MCP specification:
+
+#### STDIO Transport (Legacy Mode)
+- **Protocol Version**: 2024-11-05 and earlier
+- **Usage**: Suitable for local integrations and command-line tools
+- **Start Command**: `npm run start:stdio` or `MCP_TRANSPORT_MODE=stdio npm start`
+- **Communication**: JSON-RPC over standard input/output streams
+
+#### HTTP Streamable Transport (Current Standard)
+- **Protocol Version**: 2025-03-26
+- **Usage**: Suitable for web-based integrations and remote server deployments
+- **Start Command**: `npm run start:http` or `MCP_TRANSPORT_MODE=http npm start`
+- **Endpoints**: 
+  - `POST/GET/DELETE /mcp` - Main MCP endpoint
+  - `GET /health` - Health check endpoint
+- **Features**: Session management, resumability support, CORS enabled
+- **Port**: Defaults to 3000 (configurable via `PORT` environment variable)
+
 ### MCP Server Structure
-The server is built using the `@modelcontextprotocol/sdk` and runs on stdio transport. The main server logic is in `src/index.ts` with the following key components:
+The server is built using the `@modelcontextprotocol/sdk` and supports both STDIO and HTTP Streamable transports. The main server logic is in `src/index.ts` with the following key components:
 
 - **Server Creation**: `createServer()` function creates an McpServer instance
 - **Tool Registration**: Six tools are registered with input validation using Zod schemas
@@ -81,6 +103,10 @@ The server integrates with Supadata's JavaScript SDK (`@supadata/js`) and provid
 ### Required Environment Variables
 - `SUPADATA_API_KEY` - Supadata API key for authentication
 
+### Transport Configuration
+- `MCP_TRANSPORT_MODE` - Transport mode: "stdio" (default) or "http"
+- `PORT` - HTTP server port (default: 3000, only used in HTTP mode)
+
 ### Optional Environment Variables
 - `SUPADATA_RETRY_MAX_ATTEMPTS` - Max retry attempts (default: 3)
 - `SUPADATA_RETRY_INITIAL_DELAY` - Initial retry delay in ms (default: 1000)
@@ -112,11 +138,36 @@ Key test files:
 
 ## Deployment
 
-The server can be deployed via:
+### STDIO Transport (Legacy)
 - **NPX**: `npx -y @supadata/mcp`
 - **Global Install**: `npm install -g @supadata/mcp`
-- **Docker**: Using provided Dockerfile
 - **MCP Integrations**: Cursor, VS Code, Claude Desktop, Windsurf
+
+### HTTP Streamable Transport (Recommended)
+- **Local Development**: `MCP_TRANSPORT_MODE=http npm start`
+- **Production**: Deploy as HTTP service on port 3000 (or custom port)
+- **Docker**: Using provided Dockerfile with HTTP transport mode
+- **Cloud Deployment**: Suitable for AWS, Google Cloud, Azure, Heroku, etc.
+- **Load Balancing**: Supports multiple instances with session management
+
+### Environment Setup Examples
+
+```bash
+# STDIO mode (legacy)
+export SUPADATA_API_KEY=your_api_key_here
+npm run start:stdio
+
+# HTTP mode (recommended)
+export SUPADATA_API_KEY=your_api_key_here
+export PORT=3000
+npm run start:http
+
+# Production HTTP deployment
+export MCP_TRANSPORT_MODE=http
+export PORT=8080
+export SUPADATA_API_KEY=your_api_key_here
+npm start
+```
 
 ## Development Notes
 

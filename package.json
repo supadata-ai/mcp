@@ -17,6 +17,9 @@
     "build": "tsc && node -e \"require('fs').chmodSync('dist/index.js', '755')\"",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "start": "node dist/index.js",
+    "start:stdio": "MCP_TRANSPORT_MODE=stdio node dist/index.js",
+    "start:http": "MCP_TRANSPORT_MODE=http node dist/index.js",
+    "dev:http": "MCP_TRANSPORT_MODE=http PORT=3000 node dist/index.js",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write .",
@@ -35,6 +38,7 @@
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",
+    "@types/cors": "^2.8.17",
     "@types/express": "^5.0.1",
     "@types/jest": "^29.5.14",
     "@types/node": "^20.10.5",

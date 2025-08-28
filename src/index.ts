@@ -123,7 +123,7 @@ async function withRetry<T>(
   }
 }
 
-export default function createServer() {
+export function createServer() {
   const server = new McpServer({
     name: '@supadata/mcp',
     version: '1.0.0',
@@ -525,10 +525,10 @@ export default function createServer() {
   return server.server;
 }
 
-// Server startup
-async function runServer() {
+// Server startup for STDIO transport
+async function runStdioServer() {
   try {
-    console.error('Initializing Supadata MCP Server...');
+    console.error('Initializing Supadata MCP Server with STDIO transport...');
 
     const server = createServer();
     const transport = new StdioServerTransport();
@@ -540,13 +540,33 @@ async function runServer() {
     console.error('Supadata MCP Server initialized successfully');
     console.error('Supadata MCP Server running on stdio');
   } catch (error) {
-    console.error('Fatal error running server:', error);
+    console.error('Fatal error running STDIO server:', error);
     process.exit(1);
   }
 }
 
+// Server startup logic - support both STDIO and HTTP modes
+async function runServer() {
+  const transportMode = process.env.MCP_TRANSPORT_MODE || 'stdio';
+  
+  if (transportMode === 'http') {
+    // Import and run HTTP server
+    const { runHttpServer } = await import('./httpServer.js');
+    const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+    await runHttpServer(port);
+  } else {
+    // Default to STDIO transport
+    await runStdioServer();
+  }
+}
+
 // Only run the server if this file is executed directly
-runServer().catch((error: any) => {
-  console.error('Fatal error running server:', error);
-  process.exit(1);
-});
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runServer().catch((error: any) => {
+    console.error('Fatal error running server:', error);
+    process.exit(1);
+  });
+}
+
+// Default export for compatibility
+export default createServer;

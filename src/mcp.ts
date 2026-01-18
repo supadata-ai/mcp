@@ -24,7 +24,9 @@ const toolRegistry: Record<
       description: 'Search using Supadata',
       inputSchema: {
         type: 'object',
-        properties: { query: { type: 'string' } },
+        properties: {
+          query: { type: 'string' },
+        },
         required: ['query'],
       },
     },
@@ -32,14 +34,15 @@ const toolRegistry: Record<
       return { results: [{ query: args.query }] };
     },
   },
-
   extract: {
     schema: {
       name: 'extract',
       description: 'Extract using Supadata',
       inputSchema: {
         type: 'object',
-        properties: { url: { type: 'string' } },
+        properties: {
+          url: { type: 'string' },
+        },
         required: ['url'],
       },
     },
@@ -59,7 +62,9 @@ export async function callTool(
   apiKey: string
 ) {
   const tool = toolRegistry[name];
-  if (!tool) throw new Error(`Unknown tool: ${name}`);
+  if (!tool) {
+    throw new Error(`Unknown tool: ${name}`);
+  }
   return tool.handler(args, apiKey);
 }
 
@@ -87,23 +92,31 @@ export function createMcpServer(config: {
   server.setRequestHandler(
     CallToolRequestSchema,
     async (req) => {
-      return callTool(
+      const result = await callTool(
         req.params.name,
         req.params.arguments,
         config.supadataApiKey
       );
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(result),
+          },
+        ],
+      };
     }
   );
 
   return { server };
 }
 
-
 export function createSandboxServer() {
-  return createMcpServer({
-    supadataApiKey: "sandbox-test-key",
+  const config = configSchema.parse({
+    supadataApiKey: process.env.SANDBOX_API_KEY || 'sandbox-only',
     debug: false,
-  }).server;
+  });
+  return createMcpServer(config).server;
 }
 
 export default function () {

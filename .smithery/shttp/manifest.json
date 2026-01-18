@@ -1,0 +1,48 @@
+{
+  "type": "hosted",
+  "stateful": false,
+  "serverCard": {
+    "serverInfo": {
+      "name": "supadata",
+      "version": "1.0.0"
+    },
+    "tools": [
+      {
+        "name": "search",
+        "description": "Search using Supadata",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "extract",
+        "description": "Extract using Supadata",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ]
+        }
+      }
+    ],
+    "resources": [],
+    "prompts": []
+  },
+  "source": {
+    "commit": "373484ea837e6022151116499618674b761865ea",
+    "branch": "cf-worker-support"
+  }
+}

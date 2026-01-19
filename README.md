@@ -23,15 +23,6 @@ claude mcp add --transport http supadata https://api.supadata.ai/mcp \
 - Claude Code CLI
 - Supadata API token
 
-### Verify with curl (optional)
-
-```bash
-curl https://api.supadata.ai/mcp \
-  -H "Content-Type: application/json" \
-  -H "x-api-token: sd_YOUR_SUPADATA_API_TOKEN" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-```
-
 ## Local MCP (Legacy / Advanced)
 
 This method runs Supadata MCP locally using Node.js. For most users, the Remote MCP option above is recommended.

@@ -7,32 +7,32 @@ import { createMcpServer, configSchema } from './mcp.js';
 dotenv.config();
 
 async function main() {
+
   const config = configSchema.parse({
     supadataApiKey: process.env.SUPADATA_API_KEY,
     debug: process.env.DEBUG === 'true',
   });
 
-  const server = createMcpServer(config);
+  const { server } = createMcpServer(config);
   const transport = new StdioServerTransport();
 
-  await server.server.connect(transport);
+  await server.connect(transport);
 }
 
-if (process.env.RUN_STDIO) {
+const isMainModule = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
+
+if (process.env.RUN_STDIO || isMainModule) {
   main().catch((err) => {
     console.error(err);
     process.exit(1);
   });
 }
 
-
 export function createSandboxServer() {
-  const server = createMcpServer({
-    supadataApiKey: "sandbox-test-key",
+  return createMcpServer({
+    supadataApiKey: process.env.SUPADATA_API_KEY || 'sandbox-only',
     debug: false,
-  });
-
-  return server.server;
+  }).server;
 }
 
 export default function () {

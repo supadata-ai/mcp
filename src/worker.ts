@@ -1,85 +1,67 @@
-import { listTools, callTool } from './mcp.js';
+import { createMcpServer } from './mcp.js';
+import {
+  WebStandardStreamableHTTPServerTransport
+} from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 
 export default {
-  async fetch(req: Request): Promise<Response> {
-    if (req.method !== 'POST') {
-      return new Response('Method Not Allowed', { status: 405 });
-    }
-
-    const apiKey = req.headers.get('x-api-token');
-    if (!apiKey) {
-      return rpcError(null, -32001, 'Missing x-api-token');
-    }
-
-    let body: any;
+  async fetch(request: Request, env: { SUPADATA_API_KEY: string }, ctx: any): Promise<Response> {
     try {
-      body = await req.json();
-    } catch {
-      return rpcError(null, -32700, 'Invalid JSON');
-    }
+      let apiKey = request.headers.get('x-api-token');
 
-    if (body?.jsonrpc !== '2.0' || typeof body.method !== 'string') {
-      return rpcError(body?.id ?? null, -32600, 'Invalid Request');
-    }
-
-    const { id, method, params } = body;
-
-    try {
-      if (method === 'tools/list') {
-        return rpcResult(id, { tools: listTools() });
+      if (!apiKey) {
+        apiKey = request.headers.get('supadata-api-key');
       }
 
-      if (method === 'tools/call') {
-        if (!params?.name || !params?.arguments) {
-          return rpcError(id, -32602, 'Invalid params');
-        }
-
-        const result = await callTool(
-          params.name,
-          params.arguments,
-          apiKey
-        );
-
-        return rpcResult(id, result);
+      if (!apiKey) {
+        apiKey = env.SUPADATA_API_KEY;
       }
 
-      return rpcError(id, -32601, 'Method not found');
+      if (!apiKey) {
+        console.error('CRITICAL: No API token provided via headers (x-api-token) or environment (SUPADATA_API_KEY).');
+      } else {
+        console.log(`Received API Key (length: ${apiKey.length})`);
+      }
+
+      const transport = new WebStandardStreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+      });
+
+      const { server } = createMcpServer({
+        supadataApiKey: apiKey || '',
+      });
+
+      await server.connect(transport);
+
+      if (apiKey) {
+        const prefix = apiKey.substring(0, 4);
+        const suffix = apiKey.substring(apiKey.length - 4);
+        console.error(`Received API Key (length: ${apiKey.length}). Debug: ${prefix}...${suffix}`);
+      } else {
+        console.error('CRITICAL: API Key is empty!');
+      }
+
+      const url = new URL(request.url);
+      if (url.pathname === '/' && request.method === 'GET') {
+        return new Response('Supadata MCP Worker is running. Endpoint: /message or /sse', {
+          status: 200,
+          headers: { 'Content-Type': 'text/plain' }
+        });
+      }
+
+      const response = await transport.handleRequest(request);
+      return response ?? new Response('Not Found', { status: 404 });
+
     } catch (err: any) {
-      return rpcError(id, -32000, err?.message ?? 'Internal error');
+      console.error('Worker Error:', err);
+      const actualEnvKey = env.SUPADATA_API_KEY ? 'Present' : 'Missing';
+      const debugMsg = `Server Internal Error: ${err?.message}. Env Status: ${actualEnvKey}`;
+
+      return new Response(
+        JSON.stringify({
+          error: debugMsg,
+        }),
+        { status: 500 }
+      );
     }
   },
 };
-
-function rpcResult(id: any, result: any) {
-  return new Response(
-    JSON.stringify({
-      jsonrpc: '2.0',
-      id,
-      result,
-    }),
-    {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }
-  );
-}
-
-function rpcError(id: any, code: number, message: string) {
-  return new Response(
-    JSON.stringify({
-      jsonrpc: '2.0',
-      id,
-      error: {
-        code,
-        message,
-      },
-    }),
-    {
-      status: 400,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }
-  );
-}

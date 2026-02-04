@@ -8,110 +8,82 @@ A Model Context Protocol (MCP) server that integrates with [Supadata](https://su
 - Web scraping, crawling, and URL discovery
 - Automatic retries and rate limiting
 
-## Remote MCP (Recommended)
+## Installation
 
-Supadata MCP is available as a remote HTTP MCP server, hosted on Cloudflare Workers. This is the recommended way to use Supadata MCP with Claude Code.
+Connect your AI assistant to Supadata's MCP server to enable transcript extraction and web scraping capabilities directly in your workflow.
 
-### Install with Claude Code
+### Claude Code
 
 ```bash
 claude mcp add --transport http supadata https://api.supadata.ai/mcp \
-  --header "x-api-token: sd_YOUR_SUPADATA_API_TOKEN"
+  --header "x-api-token: YOUR_SUPADATA_API_TOKEN"
 ```
 
-**Requirements:**
-- Claude Code CLI
-- Supadata API token
+### Claude Desktop
 
-## Local MCP (Legacy / Advanced)
-
-This method runs Supadata MCP locally using Node.js. For most users, the Remote MCP option above is recommended.
-
-### Running with npx
-
-```bash
-env SUPADATA_API_KEY=your-api-key npx -y @supadata/mcp
-```
-
-### Manual Installation
-
-```bash
-npm install -g @supadata/mcp
-```
-
-### Running on Cursor
-
-#### Cursor v0.48.6
-
-Add to your Cursor Settings under Features > MCP Servers:
+Add to your config file:
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
   "mcpServers": {
-    "@supadata/mcp": {
-      "command": "npx",
-      "args": ["-y", "@supadata/mcp"],
-      "env": {
-        "SUPADATA_API_KEY": "YOUR_API_KEY"
+    "supadata": {
+      "url": "https://api.supadata.ai/mcp",
+      "headers": {
+        "x-api-token": "YOUR_SUPADATA_API_TOKEN"
       }
     }
   }
 }
 ```
 
-#### Cursor v0.45.6
+### Cursor
 
-Add a new MCP Server with the following details:
-- **Name:** `@supadata/mcp`
-- **Type:** `command`
-- **Command:** `env SUPADATA_API_KEY=your-api-key npx -y @supadata/mcp`
-
-For Windows users:
-```bash
-cmd /c "set SUPADATA_API_KEY=your-api-key && npx -y @supadata/mcp"
-```
-
-### Running on Windsurf
-
-Add this to `./codeium/windsurf/model_config.json`:
+Add to `.cursor/mcp.json` in your project root (or global config):
 
 ```json
 {
   "mcpServers": {
-    "@supadata/mcp": {
-      "command": "npx",
-      "args": ["-y", "@supadata/mcp"],
-      "env": {
-        "SUPADATA_API_KEY": "YOUR_API_KEY"
+    "supadata": {
+      "url": "https://api.supadata.ai/mcp",
+      "headers": {
+        "x-api-token": "YOUR_SUPADATA_API_TOKEN"
       }
     }
   }
 }
 ```
 
-### Running on VS Code
+### Windsurf
 
-#### User Settings (JSON)
+Add to `~/.codeium/windsurf/mcp_config.json`:
 
-Press `Ctrl + Shift + P` and search for "Preferences: Open User Settings (JSON)", then add:
+```json
+{
+  "mcpServers": {
+    "supadata": {
+      "serverUrl": "https://api.supadata.ai/mcp",
+      "headers": {
+        "x-api-token": "YOUR_SUPADATA_API_TOKEN"
+      }
+    }
+  }
+}
+```
+
+### VS Code + Copilot
+
+Add to your VS Code `settings.json`:
 
 ```json
 {
   "mcp": {
-    "inputs": [
-      {
-        "type": "promptString",
-        "id": "apiKey",
-        "description": "Supadata API Key",
-        "password": true
-      }
-    ],
     "servers": {
       "supadata": {
-        "command": "npx",
-        "args": ["-y", "@supadata/mcp"],
-        "env": {
-          "SUPADATA_API_KEY": "${input:apiKey}"
+        "url": "https://api.supadata.ai/mcp",
+        "headers": {
+          "x-api-token": "YOUR_SUPADATA_API_TOKEN"
         }
       }
     }
@@ -119,49 +91,24 @@ Press `Ctrl + Shift + P` and search for "Preferences: Open User Settings (JSON)"
 }
 ```
 
-#### Workspace Configuration (`.vscode/mcp.json`)
+### Cline (VS Code Extension)
 
-Optionally add this file to your workspace to share configuration with others:
+Open Cline settings and add to the MCP Servers configuration:
 
 ```json
 {
-  "inputs": [
-    {
-      "type": "promptString",
-      "id": "apiKey",
-      "description": "Supadata API Key",
-      "password": true
-    }
-  ],
-  "servers": {
-    "supadata": {
-      "command": "npx",
-      "args": ["-y", "@supadata/mcp"],
-      "env": {
-        "SUPADATA_API_KEY": "${input:apiKey}"
-      }
+  "supadata": {
+    "url": "https://api.supadata.ai/mcp",
+    "headers": {
+      "x-api-token": "YOUR_SUPADATA_API_TOKEN"
     }
   }
 }
 ```
 
-### Usage with Claude Desktop (Local MCP only)
+---
 
-Add this to your `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "@supadata/mcp": {
-      "command": "npx",
-      "args": ["-y", "@supadata/mcp"],
-      "env": {
-        "SUPADATA_API_KEY": "YOUR_API_KEY"
-      }
-    }
-  }
-}
-```
+Replace `YOUR_SUPADATA_API_TOKEN` with your API token from [supadata.ai](https://supadata.ai).
 
 ## Configuration
 

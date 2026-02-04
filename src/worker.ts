@@ -4,7 +4,7 @@ import {
 } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 
 export default {
-  async fetch(request: Request, env: { SUPADATA_API_KEY: string }, ctx: any): Promise<Response> {
+  async fetch(request: Request, env: { SUPADATA_API_KEY: string }, _ctx: any): Promise<Response> {
     try {
       let apiKey = request.headers.get('x-api-token');
 

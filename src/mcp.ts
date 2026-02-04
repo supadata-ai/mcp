@@ -5,8 +5,6 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
-type ToolHandler = (args: any, apiKey: string) => Promise<any>;
-
 async function callSupadata(path: string, args: any, apiKey: string, method: 'GET' | 'POST' = 'GET') {
   console.error(`[MCP] Calling Supadata: ${method} ${path}, Key length: ${apiKey?.length ?? 0}`);
 

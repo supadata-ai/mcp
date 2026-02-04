@@ -3,31 +3,24 @@
   "version": "1.0.1",
   "description": "MCP server for Supadata video & web scraping integration. Features include YouTube, TikTok, Instagram, Twitter, and file video transcription, web scraping, batch processing and structured data extraction.",
   "type": "module",
+  "bin": "./dist/index.js",
   "module": "src/index.ts",
   "scripts": {
-    "dev": "npx @smithery/cli dev",
-    "build": "npm run build:http",
-    "build:stdio": "tsc",
-    "build:http": "npx @smithery/cli build",
-    "start": "npm run start:http",
-    "start:http": "node .smithery/index.cjs",
-    "start:stdio": "RUN_STDIO=true node dist/index.js",
-    "prepublishOnly": "npm run build:stdio",
+    "dev": "wrangler dev",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write .",
-    "prepare": "npm run build",
-    "publish": "npm run build && npm publish"
+    "prepare": "npm run build"
   },
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.3",
+    "@modelcontextprotocol/sdk": "^1.25.3",
     "@supadata/js": "^1.3.0",
     "dotenv": "^16.4.7",
-    "express": "^5.1.0",
-    "shx": "^0.3.4",
-    "ws": "^8.18.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {

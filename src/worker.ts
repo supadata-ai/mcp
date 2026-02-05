@@ -2,9 +2,12 @@ import { createMcpServer } from './mcp.js';
 import {
   WebStandardStreamableHTTPServerTransport
 } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
 export default {
   async fetch(request: Request, env: { SUPADATA_API_KEY: string }, _ctx: any): Promise<Response> {
+    let server: Server | null = null;
+
     try {
       let apiKey = request.headers.get('x-api-token');
 
@@ -26,9 +29,10 @@ export default {
         sessionIdGenerator: undefined,
       });
 
-      const { server } = createMcpServer({
+      const result = createMcpServer({
         supadataApiKey: apiKey || '',
       });
+      server = result.server;
 
       await server.connect(transport);
 
@@ -62,6 +66,10 @@ export default {
         }),
         { status: 500 }
       );
+    } finally {
+      if (server) {
+        await server.close();
+      }
     }
   },
 };

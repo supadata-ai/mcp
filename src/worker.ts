@@ -6,6 +6,35 @@ import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
 export default {
   async fetch(request: Request, env: { SUPADATA_API_KEY: string }, _ctx: any): Promise<Response> {
+    // Health check — no server/transport needed
+    const url = new URL(request.url);
+    if (url.pathname === '/' && request.method === 'GET') {
+      return new Response('Supadata MCP Worker is running.', {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain' },
+      });
+    }
+
+    // In stateless mode, only POST is supported for JSON-RPC requests.
+    // GET (SSE streams) and DELETE (session termination) don't work
+    // because server.close() in the finally block would terminate them.
+    if (request.method !== 'POST') {
+      return new Response(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          error: {
+            code: -32000,
+            message: 'Method not allowed. Use POST for JSON-RPC requests.',
+          },
+          id: null,
+        }),
+        {
+          status: 405,
+          headers: { 'Content-Type': 'application/json', Allow: 'POST' },
+        },
+      );
+    }
+
     let server: Server | null = null;
 
     try {
@@ -24,13 +53,14 @@ export default {
       }
 
       if (!apiKey) {
-        console.error('CRITICAL: No API key provided via headers (x-api-key) or environment (SUPADATA_API_KEY).');
+        console.warn('No API key provided via headers (x-api-key) or environment (SUPADATA_API_KEY).');
       } else {
         console.log(`Received API Key (length: ${apiKey.length})`);
       }
 
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
+        enableJsonResponse: true,
       });
 
       const result = createMcpServer({
@@ -40,35 +70,17 @@ export default {
 
       await server.connect(transport);
 
-      if (apiKey) {
-        const prefix = apiKey.substring(0, 4);
-        const suffix = apiKey.substring(apiKey.length - 4);
-        console.error(`Received API Key (length: ${apiKey.length}). Debug: ${prefix}...${suffix}`);
-      } else {
-        console.error('CRITICAL: API Key is empty!');
-      }
-
-      const url = new URL(request.url);
-      if (url.pathname === '/' && request.method === 'GET') {
-        return new Response('Supadata MCP Worker is running. Endpoint: /message or /sse', {
-          status: 200,
-          headers: { 'Content-Type': 'text/plain' }
-        });
-      }
-
       const response = await transport.handleRequest(request);
       return response ?? new Response('Not Found', { status: 404 });
 
     } catch (err: any) {
       console.error('Worker Error:', err);
-      const actualEnvKey = env.SUPADATA_API_KEY ? 'Present' : 'Missing';
-      const debugMsg = `Server Internal Error: ${err?.message}. Env Status: ${actualEnvKey}`;
 
       return new Response(
         JSON.stringify({
-          error: debugMsg,
+          error: `Server Internal Error: ${err?.message}`,
         }),
-        { status: 500 }
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
       );
     } finally {
       if (server) {

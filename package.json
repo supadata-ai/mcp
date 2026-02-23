@@ -1,6 +1,6 @@
 {
   "name": "@supadata/mcp",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "MCP server for Supadata video & web scraping integration. Features include YouTube, TikTok, Instagram, Twitter, and file video transcription, web scraping, batch processing and structured data extraction.",
   "type": "module",
   "bin": "./dist/index.js",

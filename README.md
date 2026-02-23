@@ -6,6 +6,8 @@ A Model Context Protocol (MCP) server that integrates with [Supadata](https://su
 
 - **Video transcript extraction** from YouTube, TikTok, Instagram, Twitter, and file URLs
 - Web scraping, crawling, and URL discovery
+- Media metadata retrieval from YouTube, TikTok, Instagram, and Twitter
+- AI-powered structured data extraction from video content
 - Automatic retries and rate limiting
 
 ## Installation
@@ -16,7 +18,7 @@ Connect your AI assistant to Supadata's MCP server to enable transcript extracti
 
 ```bash
 claude mcp add --transport http supadata https://api.supadata.ai/mcp \
-  --header "x-api-token: YOUR_SUPADATA_API_TOKEN"
+  --header "x-api-key: YOUR_SUPADATA_API_KEY"
 ```
 
 ### Claude Desktop
@@ -31,7 +33,7 @@ Add to your config file:
     "supadata": {
       "url": "https://api.supadata.ai/mcp",
       "headers": {
-        "x-api-token": "YOUR_SUPADATA_API_TOKEN"
+        "x-api-key": "YOUR_SUPADATA_API_KEY"
       }
     }
   }
@@ -48,7 +50,7 @@ Add to `.cursor/mcp.json` in your project root (or global config):
     "supadata": {
       "url": "https://api.supadata.ai/mcp",
       "headers": {
-        "x-api-token": "YOUR_SUPADATA_API_TOKEN"
+        "x-api-key": "YOUR_SUPADATA_API_KEY"
       }
     }
   }
@@ -65,7 +67,7 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
     "supadata": {
       "serverUrl": "https://api.supadata.ai/mcp",
       "headers": {
-        "x-api-token": "YOUR_SUPADATA_API_TOKEN"
+        "x-api-key": "YOUR_SUPADATA_API_KEY"
       }
     }
   }
@@ -83,7 +85,7 @@ Add to your VS Code `settings.json`:
       "supadata": {
         "url": "https://api.supadata.ai/mcp",
         "headers": {
-          "x-api-token": "YOUR_SUPADATA_API_TOKEN"
+          "x-api-key": "YOUR_SUPADATA_API_KEY"
         }
       }
     }
@@ -100,7 +102,7 @@ Open Cline settings and add to the MCP Servers configuration:
   "supadata": {
     "url": "https://api.supadata.ai/mcp",
     "headers": {
-      "x-api-token": "YOUR_SUPADATA_API_TOKEN"
+      "x-api-key": "YOUR_SUPADATA_API_KEY"
     }
   }
 }
@@ -108,7 +110,7 @@ Open Cline settings and add to the MCP Servers configuration:
 
 ---
 
-Replace `YOUR_SUPADATA_API_TOKEN` with your API token from [supadata.ai](https://supadata.ai).
+Replace `YOUR_SUPADATA_API_KEY` with your API key from [supadata.ai](https://supadata.ai).
 
 ## Configuration
 
@@ -139,6 +141,8 @@ Select the right tool based on your needs:
 - **Scrape:** Extract content from a single page when you know the exact URL
 - **Map:** Discover all available URLs on a website
 - **Crawl:** Extract content from multiple related pages comprehensively
+- **Metadata:** Fetch metadata from media URLs (YouTube, TikTok, Instagram, Twitter)
+- **Extract:** Extract structured data from video content using AI
 
 | Tool | Best for | Returns |
 |------|----------|---------|
@@ -146,6 +150,8 @@ Select the right tool based on your needs:
 | scrape | Single page content | markdown/html |
 | map | URL discovery on a site | URL[] |
 | crawl | Multi-page extraction | markdown/html[] |
+| metadata | Media metadata retrieval | JSON object |
+| extract | AI-powered structured extraction | JSON object |
 
 ## Available Tools
 
@@ -201,6 +207,33 @@ Check the progress of a crawl job using the job ID.
 **Usage:**
 ```bash
 supadata_check_crawl_status --id "550e8400-e29b-41d4-a716-446655440000"
+```
+
+### Metadata (`supadata_metadata`)
+
+Fetch metadata from a media URL on supported platforms (YouTube, TikTok, Instagram, Twitter). Returns platform info, title, description, author details, engagement stats, media details, tags, and creation date.
+
+**Usage:**
+```bash
+supadata_metadata --url "https://youtube.com/watch?v=example"
+```
+
+### Extract (`supadata_extract`)
+
+Extract structured data from a video URL using AI. Provide a prompt for what to extract, a JSON Schema for the output format, or both. Returns a job ID for async processing.
+
+**Usage:**
+```bash
+supadata_extract --url "https://youtube.com/watch?v=example" --prompt "Extract the main topics discussed"
+```
+
+### Check Extract Status (`supadata_check_extract_status`)
+
+Check the progress of an extract job using the job ID.
+
+**Usage:**
+```bash
+supadata_check_extract_status --id "550e8400-e29b-41d4-a716-446655440000"
 ```
 
 ## Development

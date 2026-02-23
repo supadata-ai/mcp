@@ -147,11 +147,11 @@ Select the right tool based on your needs:
 | Tool | Best for | Returns |
 |------|----------|---------|
 | transcript | Video transcript extraction | text/markdown |
+| metadata | Media metadata retrieval | JSON object |
+| extract | AI-powered structured extraction | JSON object |
 | scrape | Single page content | markdown/html |
 | map | URL discovery on a site | URL[] |
 | crawl | Multi-page extraction | markdown/html[] |
-| metadata | Media metadata retrieval | JSON object |
-| extract | AI-powered structured extraction | JSON object |
 
 ## Available Tools
 
@@ -171,6 +171,33 @@ Check the progress of a transcript extraction job using the job ID.
 **Usage:**
 ```bash
 supadata_check_transcript_status --id "550e8400-e29b-41d4-a716-446655440000"
+```
+
+### Metadata (`supadata_metadata`)
+
+Fetch metadata from a media URL on supported platforms (YouTube, TikTok, Instagram, Twitter). Returns platform info, title, description, author details, engagement stats, media details, tags, and creation date.
+
+**Usage:**
+```bash
+supadata_metadata --url "https://youtube.com/watch?v=example"
+```
+
+### Extract (`supadata_extract`)
+
+Extract structured data from a video URL using AI. Provide a prompt for what to extract, a JSON Schema for the output format, or both. Returns a job ID for async processing.
+
+**Usage:**
+```bash
+supadata_extract --url "https://youtube.com/watch?v=example" --prompt "Extract the main topics discussed"
+```
+
+### Check Extract Status (`supadata_check_extract_status`)
+
+Check the progress of an extract job using the job ID.
+
+**Usage:**
+```bash
+supadata_check_extract_status --id "550e8400-e29b-41d4-a716-446655440000"
 ```
 
 ### Scrape (`supadata_scrape`)
@@ -207,33 +234,6 @@ Check the progress of a crawl job using the job ID.
 **Usage:**
 ```bash
 supadata_check_crawl_status --id "550e8400-e29b-41d4-a716-446655440000"
-```
-
-### Metadata (`supadata_metadata`)
-
-Fetch metadata from a media URL on supported platforms (YouTube, TikTok, Instagram, Twitter). Returns platform info, title, description, author details, engagement stats, media details, tags, and creation date.
-
-**Usage:**
-```bash
-supadata_metadata --url "https://youtube.com/watch?v=example"
-```
-
-### Extract (`supadata_extract`)
-
-Extract structured data from a video URL using AI. Provide a prompt for what to extract, a JSON Schema for the output format, or both. Returns a job ID for async processing.
-
-**Usage:**
-```bash
-supadata_extract --url "https://youtube.com/watch?v=example" --prompt "Extract the main topics discussed"
-```
-
-### Check Extract Status (`supadata_check_extract_status`)
-
-Check the progress of an extract job using the job ID.
-
-**Usage:**
-```bash
-supadata_check_extract_status --id "550e8400-e29b-41d4-a716-446655440000"
 ```
 
 ## Development

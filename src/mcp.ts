@@ -46,11 +46,39 @@ async function callSupadata(path: string, args: any, apiKey: string, method: 'GE
   return res.json();
 }
 
+const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled'];
+
+function addPollingHint(
+  result: any,
+  toolName: string,
+  id: string,
+  inProgressStatuses?: string[],
+) {
+  const status = result?.status;
+  if (!status) return result;
+
+  const isTerminal = inProgressStatuses
+    ? !inProgressStatuses.includes(status)
+    : TERMINAL_STATUSES.includes(status);
+
+  if (!isTerminal) {
+    return {
+      ...result,
+      _polling: {
+        message: `Job is still processing (status: "${status}"). Call ${toolName} again with id "${id}" to check progress.`,
+        retry_after_seconds: 5,
+      },
+    };
+  }
+
+  return result;
+}
+
 const toolRegistry = {
   supadata_transcript: {
     schema: {
       name: 'supadata_transcript',
-      description: 'Extract transcript from video or file URL',
+      description: 'Extract transcript from a video or file URL. For large files, returns a jobId instead of the transcript directly - use supadata_check_transcript_status with that jobId to poll for results.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -70,7 +98,7 @@ const toolRegistry = {
   supadata_check_transcript_status: {
     schema: {
       name: 'supadata_check_transcript_status',
-      description: 'Check transcript job status',
+      description: 'Check transcript job status and retrieve results. Returns status: "queued", "active", "completed", or "failed". If status is not "completed" or "failed", call this tool again after a few seconds with the same id.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -79,9 +107,10 @@ const toolRegistry = {
         required: ['id'],
       },
     },
-    handler: (args: any, apiKey: string) => {
+    handler: async (args: any, apiKey: string) => {
       const id = args.id;
-      return callSupadata(`/transcript/${id}`, {}, apiKey, 'GET');
+      const result = await callSupadata(`/transcript/${id}`, {}, apiKey, 'GET');
+      return addPollingHint(result, 'supadata_check_transcript_status', id);
     },
   },
 
@@ -122,7 +151,7 @@ const toolRegistry = {
   supadata_crawl: {
     schema: {
       name: 'supadata_crawl',
-      description: 'Create crawl job',
+      description: 'Create a crawl job to extract content from all pages on a website. Returns a jobId - use supadata_check_crawl_status with that jobId to poll for results.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -139,7 +168,7 @@ const toolRegistry = {
   supadata_check_crawl_status: {
     schema: {
       name: 'supadata_check_crawl_status',
-      description: 'Check crawl job status',
+      description: 'Check crawl job status and retrieve results. Returns status: "scraping", "completed", "failed", or "cancelled". If status is "scraping", call this tool again after a few seconds with the same id.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -148,9 +177,63 @@ const toolRegistry = {
         required: ['id'],
       },
     },
-    handler: (args: any, apiKey: string) => {
+    handler: async (args: any, apiKey: string) => {
       const id = args.id;
-      return callSupadata(`/web/crawl/${id}`, {}, apiKey, 'GET');
+      const result = await callSupadata(`/web/crawl/${id}`, {}, apiKey, 'GET');
+      return addPollingHint(result, 'supadata_check_crawl_status', id, ['scraping']);
+    },
+  },
+
+  supadata_metadata: {
+    schema: {
+      name: 'supadata_metadata',
+      description: 'Fetch metadata from a media URL (YouTube, TikTok, Instagram, Twitter). Returns platform info, title, description, author details, engagement stats, media details, tags, and creation date.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string' },
+        },
+        required: ['url'],
+      },
+    },
+    handler: (args: any, apiKey: string) =>
+      callSupadata('/metadata', args, apiKey, 'GET'),
+  },
+
+  supadata_extract: {
+    schema: {
+      name: 'supadata_extract',
+      description: 'Extract structured data from a video URL using AI. Provide a prompt for what to extract, a JSON Schema for the output format, or both. Returns a jobId for async processing - use supadata_check_extract_status with that jobId to poll for results.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string' },
+          prompt: { type: 'string' },
+          schema: { type: 'object' },
+        },
+        required: ['url'],
+      },
+    },
+    handler: (args: any, apiKey: string) =>
+      callSupadata('/extract', args, apiKey, 'POST'),
+  },
+
+  supadata_check_extract_status: {
+    schema: {
+      name: 'supadata_check_extract_status',
+      description: 'Check extract job status and retrieve results. Returns status: "queued", "active", "completed", or "failed". If status is not "completed" or "failed", call this tool again after a few seconds with the same id.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+        },
+        required: ['id'],
+      },
+    },
+    handler: async (args: any, apiKey: string) => {
+      const id = args.id;
+      const result = await callSupadata(`/extract/${id}`, {}, apiKey, 'GET');
+      return addPollingHint(result, 'supadata_check_extract_status', id);
     },
   },
 };

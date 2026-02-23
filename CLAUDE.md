@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Model Context Protocol (MCP) server implementation for Supadata web scraping and video transcript integration. The project provides six main tools: `supadata_transcript`, `supadata_check_transcript_status`, `supadata_scrape`, `supadata_map`, `supadata_crawl`, and `supadata_check_crawl_status` for video transcription, web scraping, URL discovery, and batch crawling operations.
+This is a Model Context Protocol (MCP) server implementation for Supadata web scraping and video transcript integration. The project provides nine main tools: `supadata_transcript`, `supadata_check_transcript_status`, `supadata_scrape`, `supadata_map`, `supadata_crawl`, `supadata_check_crawl_status`, `supadata_metadata`, `supadata_extract`, and `supadata_check_extract_status` for video transcription, web scraping, URL discovery, batch crawling, media metadata retrieval, and AI-powered structured data extraction.
 
 ## Key Commands
 
@@ -26,7 +26,7 @@ This is a Model Context Protocol (MCP) server implementation for Supadata web sc
 The server is built using the `@modelcontextprotocol/sdk` and runs on stdio transport. The main server logic is in `src/index.ts` with the following key components:
 
 - **Server Creation**: `createServer()` function creates an McpServer instance
-- **Tool Registration**: Six tools are registered with input validation using Zod schemas
+- **Tool Registration**: Nine tools are registered with input validation using Zod schemas
 - **Error Handling**: Comprehensive error handling with retry logic and exponential backoff
 - **Configuration**: Environment-based configuration with defaults
 
@@ -36,7 +36,9 @@ The server integrates with Supadata's JavaScript SDK (`@supadata/js`) and provid
 - **Web Scraping**: Single page content extraction to Markdown
 - **URL Mapping**: Website URL discovery and indexing
 - **Crawling**: Asynchronous batch crawling of multiple pages
-- **Status Checking**: Monitor crawl and transcript job progress and retrieve results
+- **Media Metadata**: Retrieve metadata from YouTube, TikTok, Instagram, and Twitter URLs
+- **Structured Extraction**: AI-powered extraction of structured data from video content
+- **Status Checking**: Monitor crawl, transcript, and extract job progress and retrieve results
 
 ### Tool Implementations
 
@@ -76,6 +78,23 @@ The server integrates with Supadata's JavaScript SDK (`@supadata/js`) and provid
 - **Output**: Job status and results (if completed)
 - **Cost**: No additional cost
 
+#### supadata_metadata
+- **Purpose**: Fetch metadata from media URLs on supported platforms
+- **Input**: `url` (string)
+- **Output**: Rich metadata object with platform, title, description, author info, engagement stats, media details, tags, and creation date
+- **Supported Platforms**: YouTube, TikTok, Instagram, Twitter
+
+#### supadata_extract
+- **Purpose**: Extract structured data from video content using AI
+- **Input**: `url` (string), `prompt` (string optional), `schema` (object optional - JSON Schema for output format)
+- **Output**: Job ID for async processing
+
+#### supadata_check_extract_status
+- **Purpose**: Check extract job status and retrieve results
+- **Input**: `id` (string - job ID from extract)
+- **Output**: Job status and extracted data (if completed)
+- **Cost**: No additional cost
+
 ## Configuration
 
 ### Required Environment Variables
@@ -100,7 +119,7 @@ The server includes robust error handling with:
 ## Testing
 
 The test suite uses Jest with TypeScript and ESM support. Tests cover:
-- All six tool implementations
+- All nine tool implementations
 - Error handling scenarios
 - Rate limiting behavior
 - Mock-based testing with `@jest/globals`

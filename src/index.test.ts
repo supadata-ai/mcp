@@ -31,9 +31,16 @@ interface MockWebService {
   getCrawlResults: jest.MockedFunction<(id: string) => Promise<any>>;
 }
 
+interface MockExtractService {
+  get: jest.MockedFunction<(params: any) => Promise<{ jobId: string }>>;
+  getResults: jest.MockedFunction<(id: string) => Promise<any>>;
+}
+
 interface MockSupadataClient {
   transcript: MockTranscriptService;
   web: MockWebService;
+  metadata: jest.MockedFunction<(params: any) => Promise<any>>;
+  extract: MockExtractService;
 }
 
 describe('Supadata Tool Tests', () => {
@@ -54,7 +61,12 @@ describe('Supadata Tool Tests', () => {
         map: jest.fn(),
         crawl: jest.fn(),
         getCrawlResults: jest.fn(),
-      }
+      },
+      metadata: jest.fn(),
+      extract: {
+        get: jest.fn(),
+        getResults: jest.fn(),
+      },
     };
 
     // Create request handler
@@ -234,6 +246,144 @@ describe('Supadata Tool Tests', () => {
     });
   });
 
+  // Test metadata functionality
+  test('should handle metadata request', async () => {
+    const url = 'https://www.youtube.com/watch?v=example';
+
+    const mockResponse = {
+      platform: 'youtube',
+      type: 'video',
+      id: 'example',
+      url: url,
+      title: 'Example Video',
+      description: 'An example video description',
+      author: {
+        username: 'examplechannel',
+        displayName: 'Example Channel',
+        avatarUrl: 'https://example.com/avatar.jpg',
+        verified: true,
+      },
+      stats: { views: 1000000, likes: 50000, comments: 3000, shares: null },
+      media: { type: 'video', url: 'https://example.com/video.mp4' },
+      tags: ['example', 'test'],
+      createdAt: '2024-01-01T00:00:00Z',
+      additionalData: {},
+    };
+
+    mockClient.metadata.mockResolvedValueOnce(mockResponse);
+
+    const response = await requestHandler({
+      method: 'call_tool',
+      params: {
+        name: 'supadata_metadata',
+        arguments: { url },
+      },
+    });
+
+    expect(response.isError).toBe(false);
+    expect(response.content[0].text).toContain('Example Video');
+    expect(response.content[0].text).toContain('youtube');
+    expect(mockClient.metadata).toHaveBeenCalledWith({ url });
+  });
+
+  // Test extract functionality
+  test('should handle extract request with prompt', async () => {
+    const url = 'https://www.youtube.com/watch?v=example';
+    const prompt = 'Extract the main topics discussed';
+
+    mockClient.extract.get.mockResolvedValueOnce({
+      jobId: 'test-extract-job-id',
+    });
+
+    const response = await requestHandler({
+      method: 'call_tool',
+      params: {
+        name: 'supadata_extract',
+        arguments: { url, prompt },
+      },
+    });
+
+    expect(response.isError).toBe(false);
+    expect(response.content[0].text).toContain('test-extract-job-id');
+    expect(mockClient.extract.get).toHaveBeenCalledWith({ url, prompt });
+  });
+
+  test('should handle extract request with schema', async () => {
+    const url = 'https://www.youtube.com/watch?v=example';
+    const schema = {
+      type: 'object',
+      properties: {
+        topics: { type: 'array', items: { type: 'string' } },
+        sentiment: { type: 'string' },
+      },
+    };
+
+    mockClient.extract.get.mockResolvedValueOnce({
+      jobId: 'test-extract-schema-job-id',
+    });
+
+    const response = await requestHandler({
+      method: 'call_tool',
+      params: {
+        name: 'supadata_extract',
+        arguments: { url, schema },
+      },
+    });
+
+    expect(response.isError).toBe(false);
+    expect(response.content[0].text).toContain('test-extract-schema-job-id');
+    expect(mockClient.extract.get).toHaveBeenCalledWith({ url, schema });
+  });
+
+  // Test check extract status functionality
+  test('should handle extract status request', async () => {
+    const id = 'test-extract-job-id';
+
+    const mockStatusResponse = {
+      status: 'completed',
+      data: { topics: ['topic1', 'topic2'], sentiment: 'positive' },
+      schema: {
+        type: 'object',
+        properties: {
+          topics: { type: 'array', items: { type: 'string' } },
+          sentiment: { type: 'string' },
+        },
+      },
+    };
+
+    mockClient.extract.getResults.mockResolvedValueOnce(mockStatusResponse);
+
+    const response = await requestHandler({
+      method: 'call_tool',
+      params: {
+        name: 'supadata_check_extract_status',
+        arguments: { id },
+      },
+    });
+
+    expect(response.isError).toBe(false);
+    expect(response.content[0].text).toContain('completed');
+    expect(response.content[0].text).toContain('topic1');
+    expect(mockClient.extract.getResults).toHaveBeenCalledWith(id);
+  });
+
+  test('should handle extract API errors', async () => {
+    const url = 'https://www.youtube.com/watch?v=example';
+
+    mockClient.extract.get.mockRejectedValueOnce(new Error('API Error'));
+
+    const response = await requestHandler({
+      method: 'call_tool',
+      params: {
+        name: 'supadata_extract',
+        arguments: { url },
+      },
+    });
+
+    expect(response.isError).toBe(true);
+    expect(response.content[0].text).toContain('API Error');
+  });
+
   // Test error handling
   test('should handle API errors', async () => {
     const url = 'https://example.com';
@@ -363,6 +513,43 @@ async function handleRequest(
 
       case 'supadata_check_crawl_status': {
         const response = await client.web.getCrawlResults(args.id);
+        return {
+          content: [
+            { type: 'text', text: JSON.stringify(response, null, 2) },
+          ],
+          isError: false,
+        };
+      }
+
+      case 'supadata_metadata': {
+        const response = await client.metadata({ url: args.url });
+        return {
+          content: [
+            { type: 'text', text: JSON.stringify(response, null, 2) },
+          ],
+          isError: false,
+        };
+      }
+
+      case 'supadata_extract': {
+        const params: any = { url: args.url };
+        if (args.prompt) params.prompt = args.prompt;
+        if (args.schema) params.schema = args.schema;
+        const response = await client.extract.get(params);
+        const jobId = response.jobId || response;
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Started extract job for ${args.url} with job ID: ${jobId}. Use supadata_check_extract_status to check progress.`,
+            },
+          ],
+          isError: false,
+        };
+      }
+
+      case 'supadata_check_extract_status': {
+        const response = await client.extract.getResults(args.id);
         return {
           content: [
             { type: 'text', text: JSON.stringify(response, null, 2) },

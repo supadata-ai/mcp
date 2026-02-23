@@ -9,7 +9,11 @@ export default {
     let server: Server | null = null;
 
     try {
-      let apiKey = request.headers.get('x-api-token');
+      let apiKey = request.headers.get('x-api-key');
+
+      if (!apiKey) {
+        apiKey = request.headers.get('x-api-token');
+      }
 
       if (!apiKey) {
         apiKey = request.headers.get('supadata-api-key');
@@ -20,7 +24,7 @@ export default {
       }
 
       if (!apiKey) {
-        console.error('CRITICAL: No API token provided via headers (x-api-token) or environment (SUPADATA_API_KEY).');
+        console.error('CRITICAL: No API key provided via headers (x-api-key) or environment (SUPADATA_API_KEY).');
       } else {
         console.log(`Received API Key (length: ${apiKey.length})`);
       }

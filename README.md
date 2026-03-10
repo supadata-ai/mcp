@@ -1,5 +1,7 @@
 # Supadata MCP Server
 
+[![smithery badge](https://smithery.ai/badge/supadata-ai/mcp)](https://smithery.ai/servers/supadata-ai/mcp)
+
 A Model Context Protocol (MCP) server that integrates with [Supadata](https://supadata.ai) for video transcript extraction, web scraping, crawling, and site discovery.
 
 ## Features

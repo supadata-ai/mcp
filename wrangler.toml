@@ -5,10 +5,7 @@ routes = [
   { pattern = "api.supadata.ai/mcp", zone_name = "supadata.ai" },
   { pattern = "api.supadata.ai/.well-known/oauth-authorization-server", zone_name = "supadata.ai" },
   { pattern = "api.supadata.ai/.well-known/oauth-protected-resource", zone_name = "supadata.ai" },
-  { pattern = "api.supadata.ai/authorize", zone_name = "supadata.ai" },
-  { pattern = "api.supadata.ai/token", zone_name = "supadata.ai" },
-  { pattern = "api.supadata.ai/register", zone_name = "supadata.ai" },
-  { pattern = "api.supadata.ai/callback", zone_name = "supadata.ai" },
+  { pattern = "api.supadata.ai/oauth/*", zone_name = "supadata.ai" },
 ]
 
 [observability]

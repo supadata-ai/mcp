@@ -123,9 +123,9 @@ export default {
       apiRoute: '/mcp',
       apiHandler: mcpHandler,
       defaultHandler: authHandler,
-      authorizeEndpoint: '/authorize',
-      tokenEndpoint: '/token',
-      clientRegistrationEndpoint: '/register',
+      authorizeEndpoint: '/oauth/authorize',
+      tokenEndpoint: '/oauth/token',
+      clientRegistrationEndpoint: '/oauth/register',
       scopesSupported: ['mcp'],
       accessTokenTTL: 3600,       // 1 hour
       refreshTokenTTL: 2592000,   // 30 days

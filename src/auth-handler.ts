@@ -26,8 +26,8 @@ async function createState(
   return stateToken;
 }
 
-// GET /authorize — redirect to dashboard for login
-app.get('/authorize', async (c) => {
+// GET /oauth/authorize — redirect to dashboard for login
+app.get('/oauth/authorize', async (c) => {
   const oauthReqInfo = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
   if (!oauthReqInfo.clientId) {
     return c.text('Invalid request: missing client_id', 400);
@@ -35,7 +35,7 @@ app.get('/authorize', async (c) => {
 
   const stateToken = await createState(oauthReqInfo, c.env.OAUTH_KV);
 
-  const callbackUrl = new URL('/callback', c.req.url).href;
+  const callbackUrl = new URL('/oauth/callback', c.req.url).href;
   const dashboardUrl = new URL('/oauth/mcp', c.env.DASHBOARD_URL);
   dashboardUrl.searchParams.set('state', stateToken);
   dashboardUrl.searchParams.set('callback', callbackUrl);
@@ -43,8 +43,8 @@ app.get('/authorize', async (c) => {
   return c.redirect(dashboardUrl.toString());
 });
 
-// GET /callback — validate JWT from dashboard and complete authorization
-app.get('/callback', async (c) => {
+// GET /oauth/callback — validate JWT from dashboard and complete authorization
+app.get('/oauth/callback', async (c) => {
   const token = c.req.query('token');
   const stateToken = c.req.query('state');
   const error = c.req.query('error');

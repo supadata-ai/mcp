@@ -28,7 +28,9 @@ async function createState(
 
 // GET /oauth/authorize — redirect to dashboard for login
 app.get('/oauth/authorize', async (c) => {
+  console.log('[Auth] /oauth/authorize hit');
   const oauthReqInfo = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
+  console.log('[Auth] Parsed auth request:', JSON.stringify({ clientId: oauthReqInfo.clientId, redirectUri: oauthReqInfo.redirectUri, scope: oauthReqInfo.scope, resource: oauthReqInfo.resource }));
   if (!oauthReqInfo.clientId) {
     return c.text('Invalid request: missing client_id', 400);
   }
@@ -40,11 +42,13 @@ app.get('/oauth/authorize', async (c) => {
   dashboardUrl.searchParams.set('state', stateToken);
   dashboardUrl.searchParams.set('callback', callbackUrl);
 
+  console.log('[Auth] Redirecting to dashboard:', dashboardUrl.toString());
   return c.redirect(dashboardUrl.toString());
 });
 
 // GET /oauth/callback — validate JWT from dashboard and complete authorization
 app.get('/oauth/callback', async (c) => {
+  console.log('[Auth] /oauth/callback hit');
   const token = c.req.query('token');
   const stateToken = c.req.query('state');
   const error = c.req.query('error');
@@ -94,17 +98,14 @@ app.get('/oauth/callback', async (c) => {
     return c.text('Invalid token claims', 400);
   }
 
-  // Normalize resource parameter: strip trailing slash to match the library's
-  // audience validation which computes resourceServer as protocol://host (no slash).
-  // Claude sends resource=https://api.supadata.ai/ but the library checks against
-  // https://api.supadata.ai — strict equality fails without this normalization.
-  if (oauthReqInfo.resource) {
-    if (typeof oauthReqInfo.resource === 'string') {
-      oauthReqInfo.resource = oauthReqInfo.resource.replace(/\/+$/, '');
-    } else if (Array.isArray(oauthReqInfo.resource)) {
-      oauthReqInfo.resource = oauthReqInfo.resource.map((r: string) => r.replace(/\/+$/, ''));
-    }
-  }
+  // Remove resource parameter to avoid audience validation issues.
+  // Claude sends resource=https://api.supadata.ai/ (trailing slash) but the library
+  // validates tokens against protocol://host (no slash) using strict equality.
+  // This mismatch causes "Token audience does not match resource server" on every
+  // MCP request. Removing resource skips audience validation entirely.
+  delete (oauthReqInfo as any).resource;
+
+  console.log('[Auth] JWT valid, userId:', userId, 'resource:', oauthReqInfo.resource);
 
   // Complete the OAuth authorization — the library issues its own tokens
   const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
@@ -122,6 +123,7 @@ app.get('/oauth/callback', async (c) => {
     }
   });
 
+  console.log('[Auth] completeAuthorization redirectTo:', redirectTo);
   return c.redirect(redirectTo);
 });
 

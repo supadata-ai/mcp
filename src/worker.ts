@@ -118,6 +118,26 @@ export default {
       );
     }
 
+    // Log all requests for debugging
+    console.log(`[OAuth] ${request.method} ${url.pathname} (auth: ${request.headers.has('authorization') ? 'Bearer' : 'none'})`);
+
+    // Strip `resource` parameter from token exchange requests.
+    // Claude sends resource=https://api.supadata.ai/ (trailing slash) which gets stored
+    // as the token audience. The library then validates tokens against protocol://host
+    // (no trailing slash) using strict equality, causing every MCP request to fail with
+    // "Token audience does not match resource server". Removing `resource` from both
+    // the grant (auth-handler) and the token exchange body prevents audience from being set.
+    let processedRequest = request;
+    if (url.pathname === '/oauth/token' && request.method === 'POST') {
+      const body = await request.text();
+      const params = new URLSearchParams(body);
+      if (params.has('resource')) {
+        console.log(`[OAuth] Stripping resource param from token exchange: ${params.get('resource')}`);
+        params.delete('resource');
+        processedRequest = new Request(request, { body: params.toString() });
+      }
+    }
+
     // OAuth flow for everything else
     const provider = new OAuthProvider({
       apiRoute: '/mcp',
@@ -130,6 +150,7 @@ export default {
       accessTokenTTL: 3600,       // 1 hour
       refreshTokenTTL: 2592000,   // 30 days
       onError({ code, description, status, headers }) {
+        console.log(`[OAuth Error] status=${status} code=${code} desc=${description}`);
         // Add resource_metadata to WWW-Authenticate header on 401 (RFC 9728)
         if (status === 401) {
           const newHeaders = { ...headers };
@@ -143,6 +164,8 @@ export default {
       },
     });
 
-    return provider.fetch(request, env, ctx);
+    const response = await provider.fetch(processedRequest, env, ctx);
+    console.log(`[OAuth Response] ${url.pathname} -> ${response.status}`);
+    return response;
   },
 };

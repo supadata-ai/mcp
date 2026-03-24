@@ -129,6 +129,18 @@ export default {
       scopesSupported: ['mcp'],
       accessTokenTTL: 3600,       // 1 hour
       refreshTokenTTL: 2592000,   // 30 days
+      onError({ code, description, status, headers }) {
+        // Add resource_metadata to WWW-Authenticate header on 401 (RFC 9728)
+        if (status === 401) {
+          const newHeaders = { ...headers };
+          newHeaders['WWW-Authenticate'] =
+            `Bearer resource_metadata="https://api.supadata.ai/.well-known/oauth-protected-resource"`;
+          return new Response(JSON.stringify({ error: code, error_description: description }), {
+            status,
+            headers: { ...newHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      },
     });
 
     return provider.fetch(request, env, ctx);

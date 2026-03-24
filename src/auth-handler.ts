@@ -94,6 +94,18 @@ app.get('/oauth/callback', async (c) => {
     return c.text('Invalid token claims', 400);
   }
 
+  // Normalize resource parameter: strip trailing slash to match the library's
+  // audience validation which computes resourceServer as protocol://host (no slash).
+  // Claude sends resource=https://api.supadata.ai/ but the library checks against
+  // https://api.supadata.ai — strict equality fails without this normalization.
+  if (oauthReqInfo.resource) {
+    if (typeof oauthReqInfo.resource === 'string') {
+      oauthReqInfo.resource = oauthReqInfo.resource.replace(/\/+$/, '');
+    } else if (Array.isArray(oauthReqInfo.resource)) {
+      oauthReqInfo.resource = oauthReqInfo.resource.map((r: string) => r.replace(/\/+$/, ''));
+    }
+  }
+
   // Complete the OAuth authorization — the library issues its own tokens
   const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
     request: oauthReqInfo,

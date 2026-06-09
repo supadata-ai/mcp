@@ -1,5 +1,7 @@
 # Supadata MCP Server
 
+[![supadata-ai/mcp MCP server](https://glama.ai/mcp/servers/@supadata-ai/mcp/badges/score.svg)](https://glama.ai/mcp/servers/@supadata-ai/mcp)
+
 A Model Context Protocol (MCP) server that integrates with [Supadata](https://supadata.ai) for video transcript extraction, web scraping, crawling, and site discovery.
 
 ## Features

@@ -10,32 +10,50 @@ A Model Context Protocol (MCP) server that integrates with [Supadata](https://su
 - Web scraping, crawling, and URL discovery
 - Media metadata retrieval from YouTube, TikTok, Instagram, and Twitter
 - AI-powered structured data extraction from video content
-- Automatic retries and rate limiting
 
 ## Installation
 
 For setup instructions for Claude, ChatGPT, Cursor, Windsurf, VS Code, and other clients, see the [integration guide](https://docs.supadata.ai/integrations/mcp).
 
+## Running
+
+### Stdio (default)
+
+Running the package starts an MCP server on stdio. This is what MCP clients
+(Claude Desktop, Cursor, VS Code, Windsurf, ...) use when they spawn the server:
+
+```bash
+SUPADATA_API_KEY=your-api-key npx -y @supadata/mcp
+```
+
+Example client configuration:
+
+```json
+{
+  "mcpServers": {
+    "supadata": {
+      "command": "npx",
+      "args": ["-y", "@supadata/mcp"],
+      "env": { "SUPADATA_API_KEY": "your-api-key" }
+    }
+  }
+}
+```
+
+### Streamable HTTP (hosted)
+
+The same tools are served over Streamable HTTP by the Cloudflare Worker in
+`src/worker.ts`, deployed at `https://api.supadata.ai/mcp` with OAuth 2.1.
+Run it locally with `npm run dev` (wrangler). Direct `x-api-key` header
+authentication is also accepted on `/mcp`.
+
 ## Configuration
 
 ### Environment Variables
 
-- `SUPADATA_API_KEY`: Your Supadata API key
-
-### System Configuration
-
-The server includes configurable retry and rate limiting parameters:
-
-```typescript
-const CONFIG = {
-  retry: {
-    maxAttempts: 3,           // Number of retry attempts
-    initialDelay: 1000,       // Initial delay (milliseconds)
-    maxDelay: 10000,          // Maximum delay between retries (milliseconds)
-    backoffFactor: 2          // Exponential backoff multiplier
-  }
-};
-```
+- `SUPADATA_API_KEY`: Your Supadata API key (required for the stdio server). Get one at [dash.supadata.ai](https://dash.supadata.ai)
+- `DEBUG`: set to `true` for verbose logging
+- `RUN_STDIO`: set to `true` to force the stdio server to start when the module is imported rather than executed directly
 
 ## How to Choose a Tool
 

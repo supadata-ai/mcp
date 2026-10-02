@@ -36,7 +36,7 @@ The server integrates with Supadata's JavaScript SDK (`@supadata/js`) and provid
 - **Web Scraping**: Single page content extraction to Markdown
 - **URL Mapping**: Website URL discovery and indexing
 - **Crawling**: Asynchronous batch crawling of multiple pages
-- **Media Metadata**: Retrieve metadata from YouTube, TikTok, Instagram, and Twitter URLs
+- **Media Metadata**: Retrieve metadata from YouTube, TikTok, Instagram, Twitter/X, and Facebook URLs
 - **Structured Extraction**: AI-powered extraction of structured data from video content
 - **Status Checking**: Monitor crawl, transcript, and extract job progress and retrieve results
 
@@ -82,7 +82,7 @@ The server integrates with Supadata's JavaScript SDK (`@supadata/js`) and provid
 - **Purpose**: Fetch metadata from media URLs on supported platforms
 - **Input**: `url` (string)
 - **Output**: Rich metadata object with platform, title, description, author info, engagement stats, media details, tags, and creation date
-- **Supported Platforms**: YouTube, TikTok, Instagram, Twitter
+- **Supported Platforms**: YouTube, TikTok, Instagram, Twitter/X, Facebook
 
 #### supadata_extract
 - **Purpose**: Extract structured data from video content using AI

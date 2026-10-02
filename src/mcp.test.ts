@@ -1,5 +1,7 @@
 import { describe, expect, jest, test, beforeEach, afterEach } from '@jest/globals';
+import { readFileSync } from 'node:fs';
 import { callTool, listTools } from './mcp.js';
+import { VERSION } from './version.js';
 
 const API_KEY = 'test-api-key';
 
@@ -33,6 +35,27 @@ describe('mcp tool registry', () => {
         'supadata_transcript',
       ].sort()
     );
+  });
+
+  test('every tool has a title and read-only/destructive annotations', () => {
+    for (const tool of listTools()) {
+      expect(tool.title).toBeTruthy();
+      expect(tool.annotations.title).toBe(tool.title);
+      expect(typeof tool.annotations.readOnlyHint).toBe('boolean');
+      expect(typeof tool.annotations.destructiveHint).toBe('boolean');
+    }
+  });
+
+  test('every tool is read-only and non-destructive', () => {
+    for (const tool of listTools()) {
+      expect(tool.annotations.readOnlyHint).toBe(true);
+      expect(tool.annotations.destructiveHint).toBe(false);
+    }
+  });
+
+  test('src/version.ts matches package.json', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    expect(VERSION).toBe(pkg.version);
   });
 
   test('supadata_scrape forwards noLinks and lang as query params', async () => {

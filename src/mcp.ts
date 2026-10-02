@@ -5,6 +5,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
+import { VERSION } from './version.js';
+
 async function callSupadata(path: string, args: any, apiKey: string, method: 'GET' | 'POST' = 'GET') {
   console.log(`[MCP] Calling Supadata: ${method} ${path}, Key length: ${apiKey?.length ?? 0}`);
 
@@ -78,7 +80,15 @@ const toolRegistry = {
   supadata_transcript: {
     schema: {
       name: 'supadata_transcript',
+      title: 'Get Video Transcript',
       description: 'Extract transcript from a video or file URL. For large files, returns a jobId instead of the transcript directly - use supadata_check_transcript_status with that jobId to poll for results.',
+      annotations: {
+        title: 'Get Video Transcript',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       inputSchema: {
         type: 'object',
         properties: {
@@ -98,7 +108,15 @@ const toolRegistry = {
   supadata_check_transcript_status: {
     schema: {
       name: 'supadata_check_transcript_status',
+      title: 'Check Transcript Job Status',
       description: 'Check transcript job status and retrieve results. Returns status: "queued", "active", "completed", or "failed". If status is not "completed" or "failed", call this tool again after a few seconds with the same id.',
+      annotations: {
+        title: 'Check Transcript Job Status',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       inputSchema: {
         type: 'object',
         properties: {
@@ -117,7 +135,15 @@ const toolRegistry = {
   supadata_scrape: {
     schema: {
       name: 'supadata_scrape',
-      description: 'Scrape a single web page',
+      title: 'Scrape Web Page',
+      description: 'Fetch a single web page and return its main content as Markdown, along with the page title, description and the links it contains. Use this to read or summarize a specific URL. To find which pages exist on a site, use supadata_map; to fetch many pages at once, use supadata_crawl. Costs 1 credit.',
+      annotations: {
+        title: 'Scrape Web Page',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       inputSchema: {
         type: 'object',
         properties: {
@@ -135,7 +161,15 @@ const toolRegistry = {
   supadata_map: {
     schema: {
       name: 'supadata_map',
-      description: 'Discover URLs on a website',
+      title: 'Map Website URLs',
+      description: 'List the URLs found on a website without fetching their content. Use this to discover a site\'s pages before choosing which ones to read with supadata_scrape, or to check a site\'s size before starting a supadata_crawl. Costs 1 credit.',
+      annotations: {
+        title: 'Map Website URLs',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       inputSchema: {
         type: 'object',
         properties: {
@@ -151,7 +185,15 @@ const toolRegistry = {
   supadata_crawl: {
     schema: {
       name: 'supadata_crawl',
+      title: 'Start Website Crawl',
       description: 'Create a crawl job to extract content from all pages on a website. Returns a jobId - use supadata_check_crawl_status with that jobId to poll for results.',
+      annotations: {
+        title: 'Start Website Crawl',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       inputSchema: {
         type: 'object',
         properties: {
@@ -168,7 +210,15 @@ const toolRegistry = {
   supadata_check_crawl_status: {
     schema: {
       name: 'supadata_check_crawl_status',
+      title: 'Check Crawl Job Status',
       description: 'Check crawl job status and retrieve results. Returns status: "scraping", "completed", "failed", or "cancelled". If status is "scraping", call this tool again after a few seconds with the same id.',
+      annotations: {
+        title: 'Check Crawl Job Status',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       inputSchema: {
         type: 'object',
         properties: {
@@ -187,7 +237,15 @@ const toolRegistry = {
   supadata_metadata: {
     schema: {
       name: 'supadata_metadata',
-      description: 'Fetch metadata from a media URL (YouTube, TikTok, Instagram, Twitter). Returns platform info, title, description, author details, engagement stats, media details, tags, and creation date.',
+      title: 'Get Media Metadata',
+      description: 'Fetch metadata from a media URL (YouTube, TikTok, Instagram, Twitter/X, Facebook). Returns platform info, title, description, author details, engagement stats, media details, tags, and creation date. Use this for details about a video or post; use supadata_transcript for what is said in it.',
+      annotations: {
+        title: 'Get Media Metadata',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       inputSchema: {
         type: 'object',
         properties: {
@@ -203,7 +261,15 @@ const toolRegistry = {
   supadata_extract: {
     schema: {
       name: 'supadata_extract',
+      title: 'Extract Structured Data from Video',
       description: 'Extract structured data from a video URL using AI. Provide a prompt for what to extract, a JSON Schema for the output format, or both. Returns a jobId for async processing - use supadata_check_extract_status with that jobId to poll for results.',
+      annotations: {
+        title: 'Extract Structured Data from Video',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       inputSchema: {
         type: 'object',
         properties: {
@@ -221,7 +287,15 @@ const toolRegistry = {
   supadata_check_extract_status: {
     schema: {
       name: 'supadata_check_extract_status',
+      title: 'Check Extract Job Status',
       description: 'Check extract job status and retrieve results. Returns status: "queued", "active", "completed", or "failed". If status is not "completed" or "failed", call this tool again after a few seconds with the same id.',
+      annotations: {
+        title: 'Check Extract Job Status',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       inputSchema: {
         type: 'object',
         properties: {
@@ -264,7 +338,7 @@ export function createMcpServer(config: {
   debug?: boolean;
 }) {
   const server = new Server(
-    { name: 'supadata', version: '1.0.0' },
+    { name: 'supadata', version: VERSION },
     { capabilities: { tools: {} } }
   );
 

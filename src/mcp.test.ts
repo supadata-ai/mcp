@@ -35,6 +35,22 @@ describe('mcp tool registry', () => {
     );
   });
 
+  test('every tool has a title and read-only/destructive annotations', () => {
+    for (const tool of listTools()) {
+      expect(tool.title).toBeTruthy();
+      expect(tool.annotations.title).toBe(tool.title);
+      expect(typeof tool.annotations.readOnlyHint).toBe('boolean');
+      expect(typeof tool.annotations.destructiveHint).toBe('boolean');
+    }
+  });
+
+  test('every tool is read-only and non-destructive', () => {
+    for (const tool of listTools()) {
+      expect(tool.annotations.readOnlyHint).toBe(true);
+      expect(tool.annotations.destructiveHint).toBe(false);
+    }
+  });
+
   test('supadata_scrape forwards noLinks and lang as query params', async () => {
     await callTool(
       'supadata_scrape',

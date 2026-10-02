@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- The npm package now ships only the compiled `dist/` output (plus README and
+  LICENSE) instead of the whole repository: 8 files instead of 31
+- Removed the unused `module` field, which pointed at TypeScript source
+
 ## [1.3.0] - 2026-10-02
 
 ### Added

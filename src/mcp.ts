@@ -5,6 +5,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
+import { VERSION } from './version.js';
+
 async function callSupadata(path: string, args: any, apiKey: string, method: 'GET' | 'POST' = 'GET') {
   console.log(`[MCP] Calling Supadata: ${method} ${path}, Key length: ${apiKey?.length ?? 0}`);
 
@@ -336,7 +338,7 @@ export function createMcpServer(config: {
   debug?: boolean;
 }) {
   const server = new Server(
-    { name: 'supadata', version: '1.0.0' },
+    { name: 'supadata', version: VERSION },
     { capabilities: { tools: {} } }
   );
 

@@ -10,6 +10,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "prepublishOnly": "npm run build",
+    "version": "node scripts/sync-version.mjs && git add src/version.ts",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",

@@ -1,6 +1,8 @@
 import { describe, expect, jest, test, beforeEach, afterEach } from '@jest/globals';
 import { readFileSync } from 'node:fs';
-import { callTool, listTools } from './mcp.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { callTool, createMcpServer, listTools } from './mcp.js';
 import { VERSION } from './version.js';
 
 const API_KEY = 'test-api-key';
@@ -98,5 +100,133 @@ describe('mcp tool registry', () => {
 
   test('unknown tool throws', async () => {
     await expect(callTool('nope', {}, API_KEY)).rejects.toThrow('Unknown tool: nope');
+  });
+
+  test('unknown tool throws for inherited object keys', async () => {
+    await expect(callTool('toString', {}, API_KEY)).rejects.toThrow('Unknown tool: toString');
+  });
+});
+
+describe('CallTool over the MCP protocol', () => {
+  let fetchMock: jest.Mock<any>;
+  const originalFetch = globalThis.fetch;
+  let client: Client;
+
+  beforeEach(async () => {
+    fetchMock = jest.fn() as any;
+    (globalThis as any).fetch = fetchMock;
+
+    const { server } = createMcpServer({ supadataApiKey: API_KEY });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: 'test', version: '0.0.0' });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  });
+
+  afterEach(async () => {
+    await client.close();
+    (globalThis as any).fetch = originalFetch;
+  });
+
+  function errorResponse(status: number, body: string) {
+    return { ok: false, status, text: async () => body };
+  }
+
+  test('returns the API result as text content', async () => {
+    fetchMock.mockImplementationOnce(async () => ({ ok: true, json: async () => ({ title: 'x' }) }));
+
+    const result: any = await client.callTool({
+      name: 'supadata_metadata',
+      arguments: { url: 'https://youtu.be/abc' },
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(result.content[0].text)).toEqual({ title: 'x' });
+  });
+
+  test('an API 404 is a tool error result, not a JSON-RPC error', async () => {
+    fetchMock.mockImplementationOnce(async () =>
+      errorResponse(
+        404,
+        JSON.stringify({
+          error: 'not-found',
+          message: 'Not Found',
+          details: 'This video does not exist',
+          documentationUrl: 'https://docs.supadata.ai/errors/not-found',
+        })
+      )
+    );
+
+    const result: any = await client.callTool({
+      name: 'supadata_metadata',
+      arguments: { url: 'https://youtu.be/missing' },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('HTTP 404 not-found');
+    expect(result.content[0].text).toContain('This video does not exist');
+    expect(result.content[0].text).toContain('https://docs.supadata.ai/errors/not-found');
+  });
+
+  test('a 429 adds a hint to slow down and avoid parallel calls', async () => {
+    fetchMock.mockImplementationOnce(async () =>
+      errorResponse(
+        429,
+        JSON.stringify({
+          error: 'limit-exceeded',
+          message: 'Limit Exceeded',
+          details: 'Request rate limit on current plan was exceeded.',
+        })
+      )
+    );
+
+    const result: any = await client.callTool({
+      name: 'supadata_check_transcript_status',
+      arguments: { id: 'job-1' },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Request rate limit on current plan was exceeded.');
+    expect(result.content[0].text).toContain('Avoid calling Supadata tools in parallel');
+  });
+
+  test('a non-JSON error body is passed through', async () => {
+    fetchMock.mockImplementationOnce(async () => errorResponse(502, 'Bad Gateway'));
+
+    const result: any = await client.callTool({
+      name: 'supadata_scrape',
+      arguments: { url: 'https://example.com' },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toBe('Supadata API error (HTTP 502): Bad Gateway');
+  });
+
+  test('a network failure is a tool error result', async () => {
+    fetchMock.mockImplementationOnce(async () => {
+      throw new TypeError('fetch failed');
+    });
+
+    const result: any = await client.callTool({
+      name: 'supadata_transcript',
+      arguments: { url: 'https://youtu.be/abc' },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toBe('Supadata request failed: fetch failed');
+  });
+
+  test('missing required arguments are a tool error and skip the API call', async () => {
+    const result: any = await client.callTool({ name: 'supadata_check_transcript_status' });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toBe(
+      'Supadata request failed: Missing required argument "id" for supadata_check_transcript_status'
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('an unknown tool is still a protocol error', async () => {
+    await expect(client.callTool({ name: 'nope', arguments: {} })).rejects.toThrow(/Unknown tool: nope/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

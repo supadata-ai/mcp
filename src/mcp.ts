@@ -2,10 +2,27 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
+  ErrorCode,
+  McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import { VERSION } from './version.js';
+
+// A non-2xx response from the Supadata API. Carries the HTTP status and the API's
+// `{ error, message, details, documentationUrl }` body (when it parses) so the
+// failure can be reported to the model as a readable tool result.
+export class SupadataApiError extends Error {
+  status: number;
+  body: any;
+
+  constructor(status: number, body: any, rawText: string) {
+    super(rawText);
+    this.name = 'SupadataApiError';
+    this.status = status;
+    this.body = body;
+  }
+}
 
 async function callSupadata(path: string, args: any, apiKey: string, method: 'GET' | 'POST' = 'GET') {
   console.log(`[MCP] Calling Supadata: ${method} ${path}, Key length: ${apiKey?.length ?? 0}`);
@@ -42,7 +59,13 @@ async function callSupadata(path: string, args: any, apiKey: string, method: 'GE
   if (!res.ok) {
     const errorText = await res.text();
     console.error(`Supadata API Error (${res.status}): ${errorText}`);
-    throw new Error(errorText);
+    let body: any = null;
+    try {
+      body = JSON.parse(errorText);
+    } catch {
+      // Non-JSON error body (e.g. an HTML error page) — keep the raw text.
+    }
+    throw new SupadataApiError(res.status, body, errorText);
   }
 
   return res.json();
@@ -322,10 +345,53 @@ export async function callTool(
   apiKey: string
 ) {
   const tool = (toolRegistry as any)[name];
-  if (!tool) {
+  if (!Object.prototype.hasOwnProperty.call(toolRegistry, name)) {
     throw new Error(`Unknown tool: ${name}`);
   }
+  for (const field of tool.schema.inputSchema.required) {
+    if (args?.[field] === undefined || args?.[field] === null || args?.[field] === '') {
+      throw new Error(`Missing required argument "${field}" for ${name}`);
+    }
+  }
   return tool.handler(args, apiKey);
+}
+
+/**
+ * Turn a failed tool call into a tool result with `isError: true`.
+ *
+ * MCP distinguishes protocol errors (malformed request, unknown tool) from tool
+ * execution errors. Throwing from a CallTool handler on the low-level `Server`
+ * produces a JSON-RPC error, which clients count as a failed request and the
+ * model cannot read. API failures (video not found, quota exceeded, rate limited)
+ * are tool execution errors: return them as content so the model can react.
+ */
+export function toolErrorResult(err: unknown) {
+  let text: string;
+
+  if (err instanceof SupadataApiError) {
+    const body = err.body;
+    const code = body?.error ? ` ${body.error}` : '';
+    const parts = [body?.message, body?.details].filter(Boolean);
+    const summary = parts.length ? parts.join(': ') : err.message || 'Request failed';
+    text = `Supadata API error (HTTP ${err.status}${code}): ${summary}`;
+    if (err.status === 429) {
+      text +=
+        '\nThe request was rate limited or the plan\'s credit limit was reached. ' +
+        'Avoid calling Supadata tools in parallel; wait a few seconds before retrying. ' +
+        'If the plan limit is exhausted, the user can upgrade at https://dash.supadata.ai.';
+    }
+    if (body?.documentationUrl) {
+      text += `\nDocumentation: ${body.documentationUrl}`;
+    }
+  } else {
+    const message = err instanceof Error ? err.message : String(err);
+    text = `Supadata request failed: ${message}`;
+  }
+
+  return {
+    content: [{ type: 'text' as const, text }],
+    isError: true,
+  };
 }
 
 export const configSchema = z.object({
@@ -354,11 +420,18 @@ export function createMcpServer(config: {
   server.setRequestHandler(
     CallToolRequestSchema,
     async (req) => {
-      const result = await callTool(
-        req.params.name,
-        req.params.arguments,
-        config.supadataApiKey
-      );
+      const name = req.params.name;
+      if (!Object.prototype.hasOwnProperty.call(toolRegistry, name)) {
+        // Unknown tool is a protocol error per the MCP spec.
+        throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${name}`);
+      }
+
+      let result;
+      try {
+        result = await callTool(name, req.params.arguments ?? {}, config.supadataApiKey);
+      } catch (err) {
+        return toolErrorResult(err);
+      }
 
       return {
         content: [

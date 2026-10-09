@@ -2,7 +2,7 @@ import { describe, expect, jest, test, beforeEach, afterEach } from '@jest/globa
 import { readFileSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { callTool, createMcpServer, listTools } from './mcp.js';
+import { callTool, createMcpServer, listTools, retryConfig } from './mcp.js';
 import { VERSION } from './version.js';
 
 const API_KEY = 'test-api-key';
@@ -113,6 +113,7 @@ describe('CallTool over the MCP protocol', () => {
   let client: Client;
 
   beforeEach(async () => {
+    retryConfig.baseDelayMs = 0;
     fetchMock = jest.fn() as any;
     (globalThis as any).fetch = fetchMock;
 
@@ -167,16 +168,30 @@ describe('CallTool over the MCP protocol', () => {
     expect(result.content[0].text).toContain('https://docs.supadata.ai/errors/not-found');
   });
 
-  test('a 429 adds a hint to slow down and avoid parallel calls', async () => {
-    fetchMock.mockImplementationOnce(async () =>
-      errorResponse(
-        429,
-        JSON.stringify({
-          error: 'limit-exceeded',
-          message: 'Limit Exceeded',
-          details: 'Request rate limit on current plan was exceeded.',
-        })
-      )
+  function limitExceeded(details: string) {
+    return errorResponse(
+      429,
+      JSON.stringify({ error: 'limit-exceeded', message: 'Limit Exceeded', details })
+    );
+  }
+
+  test('a per-second rate limit is retried and succeeds', async () => {
+    fetchMock
+      .mockImplementationOnce(async () => limitExceeded('Request rate limit on current plan was exceeded.'))
+      .mockImplementationOnce(async () => ({ ok: true, json: async () => ({ title: 'x' }) }));
+
+    const result: any = await client.callTool({
+      name: 'supadata_metadata',
+      arguments: { url: 'https://youtu.be/abc' },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.isError).toBeFalsy();
+  });
+
+  test('a rate limit that persists after retries tells the model to stop calling in parallel', async () => {
+    fetchMock.mockImplementation(async () =>
+      limitExceeded('Request rate limit on current plan was exceeded.')
     );
 
     const result: any = await client.callTool({
@@ -184,9 +199,80 @@ describe('CallTool over the MCP protocol', () => {
       arguments: { id: 'job-1' },
     });
 
+    expect(fetchMock).toHaveBeenCalledTimes(retryConfig.maxRetries + 1);
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('Request rate limit on current plan was exceeded.');
-    expect(result.content[0].text).toContain('Avoid calling Supadata tools in parallel');
+    expect(result.content[0].text).toContain('one at a time, not in parallel');
+  });
+
+  test('an exhausted quota is not retried and tells the model to stop', async () => {
+    fetchMock.mockImplementation(async () => limitExceeded('Plan usage limit was exceeded.'));
+
+    const result: any = await client.callTool({
+      name: 'supadata_transcript',
+      arguments: { url: 'https://youtu.be/abc' },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('monthly credits are used up');
+    expect(result.content[0].text).toContain('Do not retry');
+    expect(result.content[0].text).not.toContain('wait about 10 seconds');
+  });
+
+  test('an invalid URL on a video tool points to supadata_scrape', async () => {
+    fetchMock.mockImplementationOnce(async () =>
+      errorResponse(
+        400,
+        JSON.stringify({
+          error: 'invalid-request',
+          message: 'Invalid Request',
+          details: 'The provided URL is incorrect or the video provider could not be detected',
+        })
+      )
+    );
+
+    const result: any = await client.callTool({
+      name: 'supadata_metadata',
+      arguments: { url: 'https://example.com/blog' },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('use supadata_scrape instead');
+  });
+
+  test('a 404 from scrape says not to guess URLs', async () => {
+    fetchMock.mockImplementationOnce(async () =>
+      errorResponse(
+        404,
+        JSON.stringify({ error: 'not-found', message: 'Not Found', details: 'The requested item could not be found' })
+      )
+    );
+
+    const result: any = await client.callTool({
+      name: 'supadata_scrape',
+      arguments: { url: 'https://example.com/missing' },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('use supadata_map');
+  });
+
+  test('API keys echoed in an error are redacted', async () => {
+    fetchMock.mockImplementationOnce(async () =>
+      errorResponse(
+        401,
+        JSON.stringify({ error: 'unauthorized', message: 'Unauthorized', details: 'Invalid API Key: sd_0123456789abcdef' })
+      )
+    );
+
+    const result: any = await client.callTool({
+      name: 'supadata_transcript',
+      arguments: { url: 'https://youtu.be/abc' },
+    });
+
+    expect(result.content[0].text).toContain('sd_[redacted]');
+    expect(result.content[0].text).not.toContain('sd_0123456789abcdef');
   });
 
   test('a non-JSON error body is passed through', async () => {

@@ -50,25 +50,69 @@ async function callSupadata(path: string, args: any, apiKey: string, method: 'GE
     body = JSON.stringify(args);
   }
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body,
-  });
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, {
+      method,
+      headers,
+      body,
+    });
 
-  if (!res.ok) {
-    const errorText = await res.text();
+    if (res.ok) {
+      return res.json();
+    }
+
+    const errorText = redactApiKeys(await res.text());
     console.error(`Supadata API Error (${res.status}): ${errorText}`);
-    let body: any = null;
+    let errorBody: any = null;
     try {
-      body = JSON.parse(errorText);
+      errorBody = JSON.parse(errorText);
     } catch {
       // Non-JSON error body (e.g. an HTML error page) — keep the raw text.
     }
-    throw new SupadataApiError(res.status, body, errorText);
-  }
+    const err = new SupadataApiError(res.status, errorBody, errorText);
 
-  return res.json();
+    // Per-second rate limits clear quickly, so retry those here instead of
+    // handing the failure to the model. Quota exhaustion is not retried.
+    if (isRateLimit(err) && attempt < retryConfig.maxRetries) {
+      await sleep(retryDelayMs(res, attempt));
+      continue;
+    }
+    throw err;
+  }
+}
+
+export const retryConfig = { maxRetries: 2, baseDelayMs: 1000, maxDelayMs: 5000 };
+
+function retryDelayMs(res: { headers?: Headers }, attempt: number) {
+  const retryAfter = Number(res.headers?.get?.('retry-after'));
+  const delay = retryAfter > 0
+    ? retryAfter * 1000
+    : retryConfig.baseDelayMs * 2 ** attempt * (1 + Math.random() * 0.5);
+  return Math.min(delay, retryConfig.maxDelayMs);
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// The API echoes invalid keys back in its error message; keep them out of logs
+// and tool results.
+function redactApiKeys(text: string) {
+  return text.replace(/\bsd_[A-Za-z0-9]+/g, 'sd_[redacted]');
+}
+
+function errorDetails(err: SupadataApiError) {
+  return `${err.body?.details ?? ''} ${err.body?.message ?? ''}`;
+}
+
+// The API returns 429 limit-exceeded both for per-second rate limits and for an
+// exhausted monthly quota; `details` tells them apart.
+function isRateLimit(err: SupadataApiError) {
+  return err.status === 429 && /rate limit/i.test(errorDetails(err));
+}
+
+function isQuotaExhausted(err: SupadataApiError) {
+  return err.status === 429 && /usage limit/i.test(errorDetails(err));
 }
 
 const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled'];
@@ -104,7 +148,7 @@ const toolRegistry = {
     schema: {
       name: 'supadata_transcript',
       title: 'Get Video Transcript',
-      description: 'Extract transcript from a video or file URL. For large files, returns a jobId instead of the transcript directly - use supadata_check_transcript_status with that jobId to poll for results.',
+      description: 'Get the transcript (what is said) of a video or post on YouTube, TikTok, Instagram, X (Twitter) or Facebook, or of an audio or video file URL. Not for ordinary web pages: use supadata_scrape for those. For large files, returns a jobId instead of the transcript directly - use supadata_check_transcript_status with that jobId to poll for results.',
       annotations: {
         title: 'Get Video Transcript',
         readOnlyHint: true,
@@ -115,11 +159,28 @@ const toolRegistry = {
       inputSchema: {
         type: 'object',
         properties: {
-          url: { type: 'string' },
-          lang: { type: 'string' },
-          text: { type: 'boolean' },
-          chunkSize: { type: 'number' },
-          mode: { type: 'string' },
+          url: {
+            type: 'string',
+            description: 'URL of a single video or post on YouTube, TikTok, Instagram, X (Twitter) or Facebook, or a direct link to an audio or video file. Not for ordinary web pages (use supadata_scrape).',
+          },
+          lang: {
+            type: 'string',
+            description: 'Preferred transcript language as an ISO 639-1 code, e.g. "en". Falls back to the first available language.',
+          },
+          text: {
+            type: 'boolean',
+            description: 'true returns the transcript as plain text; false (default) returns timestamped segments.',
+          },
+          chunkSize: {
+            type: 'number',
+            minimum: 50,
+            description: 'Maximum characters per timestamped segment (at least 50). Ignored when text is true.',
+          },
+          mode: {
+            type: 'string',
+            enum: ['native', 'auto', 'generate'],
+            description: '"native" only fetches an existing transcript, "generate" always transcribes with AI, "auto" (default) tries native first and falls back to generate.',
+          },
         },
         required: ['url'],
       },
@@ -143,7 +204,10 @@ const toolRegistry = {
       inputSchema: {
         type: 'object',
         properties: {
-          id: { type: 'string' },
+          id: {
+            type: 'string',
+            description: 'The job id returned by supadata_transcript.',
+          },
         },
         required: ['id'],
       },
@@ -170,9 +234,18 @@ const toolRegistry = {
       inputSchema: {
         type: 'object',
         properties: {
-          url: { type: 'string' },
-          noLinks: { type: 'boolean' },
-          lang: { type: 'string' },
+          url: {
+            type: 'string',
+            description: 'Full URL of the web page, including https://. Use a URL you know exists; to find pages on a site, use supadata_map.',
+          },
+          noLinks: {
+            type: 'boolean',
+            description: 'true leaves out the list of links found on the page.',
+          },
+          lang: {
+            type: 'string',
+            description: 'Preferred page language as an ISO 639-1 code, e.g. "en", for sites that serve several languages.',
+          },
         },
         required: ['url'],
       },
@@ -196,7 +269,10 @@ const toolRegistry = {
       inputSchema: {
         type: 'object',
         properties: {
-          url: { type: 'string' },
+          url: {
+            type: 'string',
+            description: 'Full URL of the website to map, including https://.',
+          },
         },
         required: ['url'],
       },
@@ -209,7 +285,7 @@ const toolRegistry = {
     schema: {
       name: 'supadata_crawl',
       title: 'Start Website Crawl',
-      description: 'Create a crawl job to extract content from all pages on a website. Returns a jobId - use supadata_check_crawl_status with that jobId to poll for results.',
+      description: 'Create a crawl job to extract content from all pages on a website. Not available on every Supadata plan; if it returns upgrade-required, tell the user rather than retrying. Returns a jobId - use supadata_check_crawl_status with that jobId to poll for results.',
       annotations: {
         title: 'Start Website Crawl',
         readOnlyHint: true,
@@ -220,8 +296,16 @@ const toolRegistry = {
       inputSchema: {
         type: 'object',
         properties: {
-          url: { type: 'string' },
-          limit: { type: 'number' },
+          url: {
+            type: 'string',
+            description: 'Full URL to start crawling from, including https://.',
+          },
+          limit: {
+            type: 'number',
+            minimum: 1,
+            maximum: 5000,
+            description: 'Maximum number of pages to crawl (1-5000, default 100). Each page costs 1 credit.',
+          },
         },
         required: ['url'],
       },
@@ -245,7 +329,10 @@ const toolRegistry = {
       inputSchema: {
         type: 'object',
         properties: {
-          id: { type: 'string' },
+          id: {
+            type: 'string',
+            description: 'The job id returned by supadata_crawl.',
+          },
         },
         required: ['id'],
       },
@@ -272,7 +359,10 @@ const toolRegistry = {
       inputSchema: {
         type: 'object',
         properties: {
-          url: { type: 'string' },
+          url: {
+            type: 'string',
+            description: 'URL of a single video or post on YouTube, TikTok, Instagram, X (Twitter) or Facebook.',
+          },
         },
         required: ['url'],
       },
@@ -296,9 +386,18 @@ const toolRegistry = {
       inputSchema: {
         type: 'object',
         properties: {
-          url: { type: 'string' },
-          prompt: { type: 'string' },
-          schema: { type: 'object' },
+          url: {
+            type: 'string',
+            description: 'URL of a single video or post on YouTube, TikTok, Instagram, X (Twitter) or Facebook.',
+          },
+          prompt: {
+            type: 'string',
+            description: 'What to extract from the video, in plain language.',
+          },
+          schema: {
+            type: 'object',
+            description: 'JSON Schema describing the output format. Provide this, prompt, or both.',
+          },
         },
         required: ['url'],
       },
@@ -322,7 +421,10 @@ const toolRegistry = {
       inputSchema: {
         type: 'object',
         properties: {
-          id: { type: 'string' },
+          id: {
+            type: 'string',
+            description: 'The job id returned by supadata_extract.',
+          },
         },
         required: ['id'],
       },
@@ -365,7 +467,7 @@ export async function callTool(
  * model cannot read. API failures (video not found, quota exceeded, rate limited)
  * are tool execution errors: return them as content so the model can react.
  */
-export function toolErrorResult(err: unknown) {
+export function toolErrorResult(err: unknown, toolName?: string) {
   let text: string;
 
   if (err instanceof SupadataApiError) {
@@ -374,11 +476,9 @@ export function toolErrorResult(err: unknown) {
     const parts = [body?.message, body?.details].filter(Boolean);
     const summary = parts.length ? parts.join(': ') : err.message || 'Request failed';
     text = `Supadata API error (HTTP ${err.status}${code}): ${summary}`;
-    if (err.status === 429) {
-      text +=
-        '\nThe request was rate limited or the plan\'s credit limit was reached. ' +
-        'Avoid calling Supadata tools in parallel; wait a few seconds before retrying. ' +
-        'If the plan limit is exhausted, the user can upgrade at https://dash.supadata.ai.';
+    const hint = errorHint(err, toolName);
+    if (hint) {
+      text += `\n${hint}`;
     }
     if (body?.documentationUrl) {
       text += `\nDocumentation: ${body.documentationUrl}`;
@@ -392,6 +492,61 @@ export function toolErrorResult(err: unknown) {
     content: [{ type: 'text' as const, text }],
     isError: true,
   };
+}
+
+const VIDEO_TOOLS = ['supadata_transcript', 'supadata_metadata', 'supadata_extract'];
+const STATUS_TOOLS = [
+  'supadata_check_transcript_status',
+  'supadata_check_crawl_status',
+  'supadata_check_extract_status',
+];
+
+// Tell the model whether retrying can help, so agents working through a list of
+// URLs stop on terminal errors instead of repeating them.
+function errorHint(err: SupadataApiError, toolName?: string): string | undefined {
+  if (isQuotaExhausted(err)) {
+    return (
+      "The Supadata account's monthly credits are used up. Do not retry, and do not call " +
+      'other Supadata tools: they will fail the same way. Tell the user to upgrade, enable ' +
+      'Auto Recharge at https://dash.supadata.ai, or wait for the next billing cycle.'
+    );
+  }
+  if (err.status === 429) {
+    return (
+      'The plan\'s per-second rate limit was exceeded (already retried). Call Supadata tools ' +
+      'one at a time, not in parallel, and wait about 10 seconds before retrying.'
+    );
+  }
+  if (err.status === 402) {
+    return (
+      "This feature is not available on the user's Supadata plan. Do not retry; tell the user " +
+      'it requires an upgrade at https://dash.supadata.ai.'
+    );
+  }
+  if (err.status === 401) {
+    return 'The Supadata API key is invalid. Do not retry; the user needs to reconnect Supadata or fix the key.';
+  }
+  if (toolName && STATUS_TOOLS.includes(toolName) && err.status === 404) {
+    return 'No job with this id exists (it may have expired). Do not keep polling; start a new job instead.';
+  }
+  if (toolName === 'supadata_scrape' && err.status === 404) {
+    return (
+      'The page does not exist at this URL. Do not guess URLs: use supadata_map to list the ' +
+      "site's real pages, or ask the user for the correct link."
+    );
+  }
+  if (toolName && VIDEO_TOOLS.includes(toolName) && err.status === 400) {
+    return (
+      'This tool only accepts a single video or post URL from YouTube, TikTok, Instagram, X ' +
+      '(Twitter) or Facebook' +
+      (toolName === 'supadata_transcript' ? ', or a direct link to an audio or video file' : '') +
+      '. For an ordinary web page, use supadata_scrape instead. Do not retry the same URL.'
+    );
+  }
+  if (toolName && VIDEO_TOOLS.includes(toolName) && (err.status === 403 || err.status === 404)) {
+    return 'This video or post is unavailable (deleted, private or restricted). Do not retry the same URL.';
+  }
+  return undefined;
 }
 
 export const configSchema = z.object({
@@ -430,7 +585,7 @@ export function createMcpServer(config: {
       try {
         result = await callTool(name, req.params.arguments ?? {}, config.supadataApiKey);
       } catch (err) {
-        return toolErrorResult(err);
+        return toolErrorResult(err, name);
       }
 
       return {

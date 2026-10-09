@@ -8,7 +8,7 @@
 
 - Per-second rate limits (429 "Request rate limit…") are retried up to twice
   with backoff (or the API's `Retry-After`) before being reported, instead of
-  failing the tool call. These were 45% of tool errors from Oct 4 to Oct 9
+  failing the tool call
 - An exhausted monthly quota (429 "Plan usage limit…") is no longer described as
   a rate limit: the error tells the model the credits are used up and not to
   retry or call other Supadata tools

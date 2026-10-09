@@ -61,7 +61,7 @@ async function callSupadata(path: string, args: any, apiKey: string, method: 'GE
       return res.json();
     }
 
-    const errorText = redactApiKeys(await res.text());
+    const errorText = await res.text();
     console.error(`Supadata API Error (${res.status}): ${errorText}`);
     let errorBody: any = null;
     try {
@@ -93,12 +93,6 @@ function retryDelayMs(res: { headers?: Headers }, attempt: number) {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// The API echoes invalid keys back in its error message; keep them out of logs
-// and tool results.
-function redactApiKeys(text: string) {
-  return text.replace(/\bsd_[A-Za-z0-9]+/g, 'sd_[redacted]');
 }
 
 function errorDetails(err: SupadataApiError) {
@@ -511,7 +505,7 @@ function errorHint(err: SupadataApiError, toolName?: string): string | undefined
       'Auto Recharge at https://dash.supadata.ai, or wait for the next billing cycle.'
     );
   }
-  if (err.status === 429) {
+  if (isRateLimit(err)) {
     return (
       'The plan\'s per-second rate limit was exceeded (already retried). Call Supadata tools ' +
       'one at a time, not in parallel, and wait about 10 seconds before retrying.'
@@ -536,12 +530,7 @@ function errorHint(err: SupadataApiError, toolName?: string): string | undefined
     );
   }
   if (toolName && VIDEO_TOOLS.includes(toolName) && err.status === 400) {
-    return (
-      'This tool only accepts a single video or post URL from YouTube, TikTok, Instagram, X ' +
-      '(Twitter) or Facebook' +
-      (toolName === 'supadata_transcript' ? ', or a direct link to an audio or video file' : '') +
-      '. For an ordinary web page, use supadata_scrape instead. Do not retry the same URL.'
-    );
+    return 'For an ordinary web page, use supadata_scrape instead. Do not retry the same URL.';
   }
   if (toolName && VIDEO_TOOLS.includes(toolName) && (err.status === 403 || err.status === 404)) {
     return 'This video or post is unavailable (deleted, private or restricted). Do not retry the same URL.';

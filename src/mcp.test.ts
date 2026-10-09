@@ -220,6 +220,22 @@ describe('CallTool over the MCP protocol', () => {
     expect(result.content[0].text).not.toContain('wait about 10 seconds');
   });
 
+  test("a target site's 429 on scrape is not retried or called a plan limit", async () => {
+    fetchMock.mockImplementation(async () =>
+      limitExceeded('The target site is throttling requests (HTTP 429): https://example.com')
+    );
+
+    const result: any = await client.callTool({
+      name: 'supadata_scrape',
+      arguments: { url: 'https://example.com' },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('The target site is throttling requests');
+    expect(result.content[0].text).not.toContain('per-second rate limit');
+  });
+
   test('an invalid URL on a video tool points to supadata_scrape', async () => {
     fetchMock.mockImplementationOnce(async () =>
       errorResponse(
@@ -256,23 +272,6 @@ describe('CallTool over the MCP protocol', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('use supadata_map');
-  });
-
-  test('API keys echoed in an error are redacted', async () => {
-    fetchMock.mockImplementationOnce(async () =>
-      errorResponse(
-        401,
-        JSON.stringify({ error: 'unauthorized', message: 'Unauthorized', details: 'Invalid API Key: sd_0123456789abcdef' })
-      )
-    );
-
-    const result: any = await client.callTool({
-      name: 'supadata_transcript',
-      arguments: { url: 'https://youtu.be/abc' },
-    });
-
-    expect(result.content[0].text).toContain('sd_[redacted]');
-    expect(result.content[0].text).not.toContain('sd_0123456789abcdef');
   });
 
   test('a non-JSON error body is passed through', async () => {

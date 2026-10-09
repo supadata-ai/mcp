@@ -2,8 +2,27 @@
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-10-09
+
+### Fixed
+
+- Per-second rate limits (429 "Request rate limit…") are retried up to twice
+  with backoff (or the API's `Retry-After`) before being reported, instead of
+  failing the tool call. These were 45% of tool errors from Oct 4 to Oct 9
+- An exhausted monthly quota (429 "Plan usage limit…") is no longer described as
+  a rate limit: the error tells the model the credits are used up and not to
+  retry or call other Supadata tools
+- Error results now say whether retrying can help: unsupported URLs on video
+  tools point to `supadata_scrape`, a 404 from `supadata_scrape` points to
+  `supadata_map`, unknown job ids say to start a new job, and plan,
+  authentication and unavailable-video errors say not to retry
+
 ### Changed
 
+- Every tool input now has a description; `mode` is an enum, and `chunkSize`
+  and the crawl `limit` declare their allowed ranges
+- The transcript tool description lists the supported platforms and says it is
+  not for ordinary web pages
 - The npm package now ships only the compiled `dist/` output (plus README and
   LICENSE) instead of the whole repository: 8 files instead of 31
 - Removed the unused `module` field, which pointed at TypeScript source

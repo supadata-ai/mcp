@@ -9,9 +9,9 @@
 - Requests to the Supadata API now send a `User-Agent` of the form
   `supadata-mcp/<version> (<client>; <transport>)`, so API usage can be
   attributed to the AI client that made it. On the hosted server the client
-  comes from the OAuth client's registered name or the request headers (Claude,
-  ChatGPT, Codex, Claude Code, Cursor, otherwise the User-Agent's product
-  name); over stdio it is the name the MCP client sends when it connects
+  comes from the request headers (Claude, ChatGPT, Codex, Claude Code, Cursor),
+  then the OAuth client's registered name, then the User-Agent's product
+  name; over stdio it is the name the MCP client sends when it connects
 - The OAuth authorize redirect to the dashboard includes a `client` parameter
   with the OAuth client's registered name, when known
 

@@ -23,11 +23,9 @@ function userAgentFamily(userAgent: string): string | undefined {
   return sanitizeClientName(userAgent.trim().split(/[/\s(]/)[0]);
 }
 
-/**
- * Detect the client from the headers of an incoming hosted MCP request.
- * Returns "unknown" when neither the headers nor the User-Agent say anything.
- */
-export function detectClient(headers: Pick<Headers, 'get'>): string {
+// Clients recognised from their headers, or undefined when the headers say
+// nothing more specific than a generic User-Agent.
+function detectKnownClient(headers: Pick<Headers, 'get'>): string | undefined {
   const userAgent = headers.get('user-agent') ?? '';
 
   const anthropicClient = sanitizeClientName(headers.get('x-anthropic-client'));
@@ -37,6 +35,23 @@ export function detectClient(headers: Pick<Headers, 'get'>): string {
   if (/claude-code/i.test(userAgent)) return 'ClaudeCode-local';
   if (/^Claude-User/i.test(userAgent)) return 'Claude';
   if (/cursor/i.test(userAgent)) return 'Cursor';
+  return undefined;
+}
 
-  return userAgentFamily(userAgent) ?? 'unknown';
+/**
+ * Detect the client from the headers of an incoming hosted MCP request.
+ * Returns "unknown" when neither the headers nor the User-Agent say anything.
+ */
+export function detectClient(headers: Pick<Headers, 'get'>): string {
+  return detectKnownClient(headers) ?? userAgentFamily(headers.get('user-agent') ?? '') ?? 'unknown';
+}
+
+/**
+ * Pick the client for a hosted request. A client recognised from the headers wins,
+ * since it is more specific (e.g. Claude-ClaudeAI vs Claude-ClaudeCode) than the
+ * OAuth client's registered name; that name is used when the headers don't
+ * identify the client.
+ */
+export function resolveClient(headers: Pick<Headers, 'get'>, oauthClientName?: string): string {
+  return detectKnownClient(headers) ?? sanitizeClientName(oauthClientName) ?? detectClient(headers);
 }

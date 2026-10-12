@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildUserAgent, callTool, createMcpServer, listTools, retryConfig } from './mcp.js';
-import { detectClient, sanitizeClientName } from './client.js';
+import { detectClient, resolveClient, sanitizeClientName } from './client.js';
 import { VERSION } from './version.js';
 
 const API_KEY = 'test-api-key';
@@ -382,6 +382,24 @@ describe('detectClient', () => {
     [{}, 'unknown'],
   ])('%j -> %s', (headers, expected) => {
     expect(detectClient(new Headers(headers as Record<string, string>))).toBe(expected);
+  });
+});
+
+describe('resolveClient', () => {
+  test.each([
+    // A client recognised from the headers beats the OAuth client name.
+    [{ 'x-anthropic-client': 'ClaudeAI' }, 'Claude', 'Claude-ClaudeAI'],
+    [{ 'x-anthropic-client': 'Cowork' }, 'Claude', 'Claude-Cowork'],
+    [{ 'user-agent': 'codex-mcp-client/0.46.0' }, 'Codex CLI', 'Codex'],
+    // Otherwise the OAuth client name beats the generic User-Agent fallback.
+    [{ 'user-agent': 'node-fetch/1.0' }, 'Some App', 'Some-App'],
+    [{}, 'Some App', 'Some-App'],
+    // Old grants without a client name use header detection alone.
+    [{ 'user-agent': 'node-fetch/1.0' }, undefined, 'node-fetch'],
+    [{}, undefined, 'unknown'],
+    [{}, '()', 'unknown'],
+  ])('%j with OAuth client %j -> %s', (headers, clientName, expected) => {
+    expect(resolveClient(new Headers(headers as Record<string, string>), clientName)).toBe(expected);
   });
 });
 

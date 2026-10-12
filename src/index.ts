@@ -22,7 +22,7 @@ async function main() {
     debug: process.env.DEBUG === 'true',
   });
 
-  const { server } = createMcpServer(config);
+  const { server } = createMcpServer({ ...config, transport: 'stdio' });
   const transport = new StdioServerTransport();
 
   await server.connect(transport);

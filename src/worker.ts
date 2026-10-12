@@ -6,9 +6,11 @@ import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
 import { createMcpServer } from './mcp.js';
 import { authHandler } from './auth-handler.js';
+import { detectClient, sanitizeClientName } from './client.js';
 
-// Handle MCP requests with a direct API key (legacy / backward-compatible)
-async function handleMcpWithApiKey(request: Request, apiKey: string): Promise<Response> {
+// Handle MCP requests with a direct API key (legacy / backward-compatible).
+// `clientName` is the OAuth client's registered name, when known.
+async function handleMcpWithApiKey(request: Request, apiKey: string, clientName?: string): Promise<Response> {
   if (request.method !== 'POST') {
     return new Response(
       JSON.stringify({
@@ -34,7 +36,11 @@ async function handleMcpWithApiKey(request: Request, apiKey: string): Promise<Re
       enableJsonResponse: true,
     });
 
-    const result = createMcpServer({ supadataApiKey: apiKey });
+    const result = createMcpServer({
+      supadataApiKey: apiKey,
+      client: sanitizeClientName(clientName) ?? detectClient(request.headers),
+      transport: 'hosted',
+    });
     server = result.server;
 
     await server.connect(transport);
@@ -68,7 +74,8 @@ const mcpHandler = {
       );
     }
 
-    return handleMcpWithApiKey(request, apiKey);
+    // Grants issued before clientName was stored fall back to header detection.
+    return handleMcpWithApiKey(request, apiKey, props.clientName);
   },
 };
 

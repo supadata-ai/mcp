@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Hosted server OAuth: a connection now lasts 90 days instead of 30 before the
+  client has to log in again. The lifetime is counted from login and is not
+  extended by refreshes; it applies to connections made after the deploy
+
+### Fixed
+
+- `/mcp` 401 responses carry `error="invalid_token"` again alongside
+  `resource_metadata` in `WWW-Authenticate`; token endpoint 401s keep the
+  provider's own challenge
+
+### Added
+
+- Failed `/oauth/token` requests are logged as `[OAuth Token Error]` with the
+  error, grant type, client name and age, and whether the grant still exists
+
 ## [1.3.3] - 2026-10-12
 
 ### Fixed

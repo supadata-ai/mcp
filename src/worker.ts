@@ -7,6 +7,38 @@ import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { createMcpServer } from './mcp.js';
 import { authHandler } from './auth-handler.js';
 
+const RESOURCE_METADATA_URL = 'https://api.supadata.ai/.well-known/oauth-protected-resource';
+
+// Discovery documents are static; /.well-known/oauth-authorization-server alone
+// gets ~93k hits/day, so let clients and caches keep them for an hour.
+const METADATA_CACHE_CONTROL = 'public, max-age=3600';
+
+// OAuth Protected Resource Metadata (RFC 9728), keyed by well-known path.
+// Path-aware clients (the MCP SDK, Cursor, Codex) first try the URL with the
+// resource path appended. RFC 9728 §3.3 requires `resource` to equal the
+// identifier the URL was built from, so the /mcp variant names /mcp. The value
+// never reaches a token audience: `resource` is stripped before the grant and
+// the token exchange (see below and auth-handler.ts).
+const PROTECTED_RESOURCES: Record<string, string> = {
+  '/.well-known/oauth-protected-resource': 'https://api.supadata.ai',
+  '/.well-known/oauth-protected-resource/mcp': 'https://api.supadata.ai/mcp',
+};
+
+// Path-suffixed variant of the authorization server metadata (RFC 8414 §3.1),
+// served with the same document as the root URL.
+const AUTHORIZATION_SERVER_METADATA_PATHS = new Set([
+  '/.well-known/oauth-authorization-server',
+  '/.well-known/oauth-authorization-server/mcp',
+]);
+
+function withHeaders(response: Response, headers: Record<string, string>): Response {
+  const result = new Response(response.body, response);
+  for (const [name, value] of Object.entries(headers)) {
+    result.headers.set(name, value);
+  }
+  return result;
+}
+
 // Handle MCP requests with a direct API key (legacy / backward-compatible)
 async function handleMcpWithApiKey(request: Request, apiKey: string): Promise<Response> {
   if (request.method !== 'POST') {
@@ -63,8 +95,14 @@ const mcpHandler = {
 
     if (!apiKey) {
       return new Response(
-        JSON.stringify({ error: 'No API key in OAuth context' }),
-        { status: 401, headers: { 'Content-Type': 'application/json' } },
+        JSON.stringify({ error: 'invalid_token', error_description: 'No API key in OAuth context' }),
+        {
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+            'WWW-Authenticate': `Bearer error="invalid_token", resource_metadata="${RESOURCE_METADATA_URL}"`,
+          },
+        },
       );
     }
 
@@ -101,10 +139,11 @@ export default {
     }
 
     // Serve OAuth Protected Resource Metadata (RFC 9728)
-    if (url.pathname === '/.well-known/oauth-protected-resource') {
+    const protectedResource = PROTECTED_RESOURCES[url.pathname];
+    if (protectedResource) {
       return new Response(
         JSON.stringify({
-          resource: 'https://api.supadata.ai',
+          resource: protectedResource,
           authorization_servers: ['https://api.supadata.ai'],
           scopes_supported: ['mcp'],
           bearer_methods_supported: ['header'],
@@ -113,6 +152,27 @@ export default {
           headers: {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
+            'Cache-Control': METADATA_CACHE_CONTROL,
+          },
+        },
+      );
+    }
+
+    // This is a plain OAuth 2.0 server, not an OpenID provider: it issues no ID
+    // tokens and has no JWKS, so an OIDC discovery document would be invalid.
+    // A 404 tells clients to move on to the RFC 8414 document.
+    if (url.pathname === '/.well-known/openid-configuration') {
+      return new Response(
+        JSON.stringify({
+          error: 'not_found',
+          error_description: 'Not an OpenID provider; see /.well-known/oauth-authorization-server',
+        }),
+        {
+          status: 404,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': METADATA_CACHE_CONTROL,
           },
         },
       );
@@ -127,15 +187,25 @@ export default {
     // (no trailing slash) using strict equality, causing every MCP request to fail with
     // "Token audience does not match resource server". Removing `resource` from both
     // the grant (auth-handler) and the token exchange body prevents audience from being set.
+    // Reading the body consumes it, so the provider always gets a rebuilt request.
     let processedRequest = request;
     if (url.pathname === '/oauth/token' && request.method === 'POST') {
-      const body = await request.text();
+      let body = await request.text();
       const params = new URLSearchParams(body);
       if (params.has('resource')) {
         console.log(`[OAuth] Stripping resource param from token exchange: ${params.get('resource')}`);
         params.delete('resource');
-        processedRequest = new Request(request, { body: params.toString() });
+        body = params.toString();
       }
+      processedRequest = new Request(request, { body });
+    }
+
+    // The provider only answers the root metadata URL
+    if (AUTHORIZATION_SERVER_METADATA_PATHS.has(url.pathname)) {
+      processedRequest = new Request(
+        new URL('/.well-known/oauth-authorization-server', url),
+        request,
+      );
     }
 
     // OAuth flow for everything else
@@ -164,8 +234,23 @@ export default {
       },
     });
 
-    const response = await provider.fetch(processedRequest, env, ctx);
+    let response = await provider.fetch(processedRequest, env, ctx);
     console.log(`[OAuth Response] ${url.pathname} -> ${response.status}`);
+
+    if (AUTHORIZATION_SERVER_METADATA_PATHS.has(url.pathname) && response.ok) {
+      response = withHeaders(response, { 'Cache-Control': METADATA_CACHE_CONTROL, Vary: 'Origin' });
+    }
+
+    // The provider returns a relative `registration_client_uri` ("/oauth/register/<id>")
+    // for a client-management endpoint (RFC 7592) it doesn't implement. RFC 7591
+    // clients that validate it as a URL reject the whole registration response,
+    // so drop it.
+    if (url.pathname === '/oauth/register' && response.status === 201) {
+      const registration = (await response.json()) as Record<string, unknown>;
+      delete registration.registration_client_uri;
+      response = new Response(JSON.stringify(registration), response);
+    }
+
     return response;
   },
 };

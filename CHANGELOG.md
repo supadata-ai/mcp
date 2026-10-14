@@ -27,7 +27,7 @@
 - `[OAuth Error]` log lines name the provider's internal reason, such as
   `refresh-token-grant/refresh_token_mismatch` or `grant_not_found`
 
-## [1.3.3] - 2026-10-12
+## [1.3.4] - 2026-10-14
 
 ### Fixed
 
@@ -52,6 +52,19 @@
 ### Changed
 
 - Discovery documents are sent with `Cache-Control: public, max-age=3600`
+
+## [1.3.3] - 2026-10-12
+
+### Added
+
+- Requests to the Supadata API now send a `User-Agent` of the form
+  `supadata-mcp/<version> (<client>; <transport>)`, so API usage can be
+  attributed to the AI client that made it. On the hosted server the client
+  comes from the request headers (Claude, ChatGPT, Codex, Claude Code, Cursor),
+  then the OAuth client's registered name, then the User-Agent's product
+  name; over stdio it is the name the MCP client sends when it connects
+- The OAuth authorize redirect to the dashboard includes a `client` parameter
+  with the OAuth client's registered name, when known
 
 ## [1.3.2] - 2026-10-09
 

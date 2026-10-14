@@ -63,12 +63,12 @@ function workerFetch(input: string | URL | Request, init?: RequestInit): Promise
   return worker.fetch(request, env, ctx);
 }
 
-async function registerClient(redirectUris = [REDIRECT_URI]) {
+async function registerClient(redirectUris = [REDIRECT_URI], clientName = 'Cursor') {
   const res = await workerFetch(`${ORIGIN}/oauth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      client_name: 'Cursor',
+      client_name: clientName,
       redirect_uris: redirectUris,
       token_endpoint_auth_method: 'none',
       grant_types: ['authorization_code', 'refresh_token'],
@@ -159,6 +159,49 @@ describe('client registration', () => {
   });
 });
 
+// Registers a client, authorizes it and exchanges the code for tokens
+async function obtainTokens(clientName = 'Cursor') {
+  const client = await registerClient([REDIRECT_URI], clientName);
+  const url = new URL(`${ORIGIN}/oauth/authorize`);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('client_id', client.client_id);
+  url.searchParams.set('redirect_uri', REDIRECT_URI);
+  const redirect = await authorize(url);
+  const res = await workerFetch(`${ORIGIN}/oauth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: redirect.searchParams.get('code')!,
+      redirect_uri: REDIRECT_URI,
+      client_id: client.client_id,
+    }).toString(),
+  });
+  expect(res.status).toBe(200);
+  return { client, tokens: (await res.json()) as Record<string, any> };
+}
+
+function refresh(clientId: string, refreshToken: string) {
+  return workerFetch(`${ORIGIN}/oauth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: clientId,
+    }).toString(),
+  });
+}
+
+// The structured line logTokenError writes
+function tokenErrorLogs(): Array<Record<string, any>> {
+  return (console.warn as jest.Mock).mock.calls
+    .filter(([tag]) => tag === '[OAuth Token Error]')
+    .map(([, json]) => JSON.parse(json as string));
+}
+
+const INVALID_TOKEN_CHALLENGE = `Bearer realm="OAuth", error="invalid_token"`;
+
 describe('/mcp without credentials', () => {
   test('returns 401 pointing at the protected resource metadata', async () => {
     const res = await workerFetch(MCP_URL, {
@@ -167,9 +210,21 @@ describe('/mcp without credentials', () => {
       body: '{}',
     });
     expect(res.status).toBe(401);
-    expect(res.headers.get('www-authenticate')).toContain(
-      `resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource"`
-    );
+    const challenge = res.headers.get('www-authenticate');
+    expect(challenge).toContain(INVALID_TOKEN_CHALLENGE);
+    expect(challenge).toContain(`resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource"`);
+  });
+
+  test('an unknown bearer token gets the same challenge', async () => {
+    const res = await workerFetch(MCP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer user-1:grant-1:nope' },
+      body: '{}',
+    });
+    expect(res.status).toBe(401);
+    const challenge = res.headers.get('www-authenticate');
+    expect(challenge).toContain(INVALID_TOKEN_CHALLENGE);
+    expect(challenge).toContain(`resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource"`);
   });
 });
 
@@ -253,6 +308,100 @@ describe('/oauth/token', () => {
     const tokens = (await res.json()) as Record<string, any>;
     expect(tokens.access_token).toBeTruthy();
     expect(tokens.refresh_token).toBeTruthy();
+  });
+});
+
+describe('refresh tokens', () => {
+  test('the grant lasts 90 days from the code exchange', async () => {
+    await obtainTokens();
+    const [grant] = [...kv.store.entries()]
+      .filter(([key]) => key.startsWith('grant:'))
+      .map(([, value]) => JSON.parse(value));
+    expect(grant.expiresAt - grant.createdAt).toBeGreaterThanOrEqual(90 * 24 * 60 * 60);
+    expect(grant.expiresAt - grant.createdAt).toBeLessThan(90 * 24 * 60 * 60 + 60);
+  });
+
+  test('rotation accepts the previous token, and rejects the one it replaced', async () => {
+    const { client, tokens } = await obtainTokens('Codex');
+
+    const first = await refresh(client.client_id, tokens.refresh_token);
+    expect(first.status).toBe(200);
+    const rotated = (await first.json()) as Record<string, any>;
+    expect(rotated.refresh_token).not.toBe(tokens.refresh_token);
+
+    // A second process still holding the old token gets through once more...
+    const raced = await refresh(client.client_id, tokens.refresh_token);
+    expect(raced.status).toBe(200);
+
+    // ...which rotates the grant again, so the first process's token is now stale
+    const stale = await refresh(client.client_id, rotated.refresh_token);
+    expect(stale.status).toBe(400);
+    expect(await stale.json()).toEqual({ error: 'invalid_grant', error_description: 'Invalid refresh token' });
+
+    const [log] = tokenErrorLogs();
+    expect(log).toMatchObject({
+      status: 400,
+      error: 'invalid_grant',
+      description: 'Invalid refresh token',
+      grantType: 'refresh_token',
+      clientId: client.client_id,
+      clientName: 'Codex',
+      grantExists: true,
+      grantRefreshed: true,
+    });
+    expect(log.grantAgeDays).toBe(0);
+    expect(log.grantExpiresInDays).toBeCloseTo(90, 0);
+  });
+
+  test('an expired grant is an invalid_grant 400, logged as missing', async () => {
+    const { client, tokens } = await obtainTokens('Codex');
+    // KV drops the grant when it expires
+    for (const key of [...kv.store.keys()].filter((k) => k.startsWith('grant:'))) kv.store.delete(key);
+
+    const res = await refresh(client.client_id, tokens.refresh_token);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'invalid_grant', error_description: 'Grant not found' });
+
+    const logs = tokenErrorLogs();
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({
+      error: 'invalid_grant',
+      description: 'Grant not found',
+      grantType: 'refresh_token',
+      clientName: 'Codex',
+      clientAgeDays: 0,
+      grantExists: false,
+      grantAgeDays: null,
+    });
+    // Nothing secret reaches the log
+    const line = (console.warn as jest.Mock).mock.calls.flat().join(' ');
+    expect(line).not.toContain(tokens.refresh_token.split(':')[2]);
+    expect(line).not.toContain(tokens.refresh_token.split(':')[0]);
+  });
+
+  test('an access token from an expired grant gets an invalid_token challenge on /mcp', async () => {
+    const { tokens } = await obtainTokens();
+    for (const key of [...kv.store.keys()].filter((k) => k.startsWith('token:'))) kv.store.delete(key);
+
+    const res = await workerFetch(MCP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokens.access_token}` },
+      body: '{}',
+    });
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toContain(INVALID_TOKEN_CHALLENGE);
+    expect(res.headers.get('www-authenticate')).toContain('resource_metadata=');
+  });
+
+  test('a client authentication 401 from /oauth/token keeps the provider challenge', async () => {
+    const res = await workerFetch(`${ORIGIN}/oauth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: 'a:b:c', client_id: 'nope' }).toString(),
+    });
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate') ?? '').not.toContain('resource_metadata');
+    expect(tokenErrorLogs()[0]).toMatchObject({ clientId: 'nope', clientName: null, grantExists: false });
   });
 });
 

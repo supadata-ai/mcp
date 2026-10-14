@@ -10,6 +10,12 @@ import { resolveClient } from './client.js';
 
 const RESOURCE_METADATA_URL = 'https://api.supadata.ai/.well-known/oauth-protected-resource';
 
+// The provider's grant lifetime is fixed when the code is exchanged; refreshes
+// do not extend it, so a client is logged out this long after it connected.
+const REFRESH_TOKEN_TTL = 90 * 24 * 60 * 60;
+
+const DAY = 24 * 60 * 60;
+
 // Discovery documents are static; /.well-known/oauth-authorization-server alone
 // gets ~93k hits/day, so let clients and caches keep them for an hour.
 const METADATA_CACHE_CONTROL = 'public, max-age=3600';
@@ -38,6 +44,69 @@ function withHeaders(response: Response, headers: Record<string, string>): Respo
     result.headers.set(name, value);
   }
   return result;
+}
+
+function daysSince(seconds: number, now: number): number {
+  return Math.round(((now - seconds) / DAY) * 10) / 10;
+}
+
+// The client_id of a token request: in the body for public clients, or the
+// username of HTTP Basic auth for confidential ones
+function tokenRequestClientId(request: Request, params: URLSearchParams): string | null {
+  const authorization = request.headers.get('authorization');
+  if (authorization?.startsWith('Basic ')) {
+    try {
+      return decodeURIComponent(atob(authorization.slice(6)).split(':')[0]);
+    } catch {
+      return null;
+    }
+  }
+  return params.get('client_id');
+}
+
+// Structured log line for a failed /oauth/token request, to tell expired
+// grants from refresh-token reuse. Codes and refresh tokens have the form
+// `<userId>:<grantId>:<secret>`; only the grant is looked up, nothing secret
+// or user-identifying is logged.
+async function logTokenError(
+  env: any,
+  request: Request,
+  params: URLSearchParams,
+  response: Response,
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  const grantType = params.get('grant_type');
+  const clientId = tokenRequestClientId(request, params);
+  const { error, error_description: description } = (await response
+    .clone()
+    .json()
+    .catch(() => ({}))) as { error?: string; error_description?: string };
+
+  const client = clientId
+    ? ((await env.OAUTH_KV.get(`client:${clientId}`, { type: 'json' }).catch(() => null)) as any)
+    : null;
+
+  const credential = grantType === 'refresh_token' ? params.get('refresh_token') : params.get('code');
+  const [userId, grantId] = credential?.split(':') ?? [];
+  const grant =
+    userId && grantId
+      ? ((await env.OAUTH_KV.get(`grant:${userId}:${grantId}`, { type: 'json' }).catch(() => null)) as any)
+      : null;
+
+  console.warn('[OAuth Token Error]', JSON.stringify({
+    status: response.status,
+    error,
+    description,
+    grantType,
+    clientId,
+    clientName: client?.clientName ?? null,
+    clientAgeDays: client?.registrationDate ? daysSince(client.registrationDate, now) : null,
+    userAgent: request.headers.get('user-agent'),
+    grantExists: grantId ? Boolean(grant) : null,
+    grantAgeDays: grant?.createdAt ? daysSince(grant.createdAt, now) : null,
+    grantExpiresInDays: grant?.expiresAt ? -daysSince(grant.expiresAt, now) : null,
+    grantRefreshed: grant ? Boolean(grant.previousRefreshTokenId) : null,
+  }));
 }
 
 // Handle MCP requests with a direct API key (legacy / backward-compatible).
@@ -196,13 +265,14 @@ export default {
     // the grant (auth-handler) and the token exchange body prevents audience from being set.
     // Reading the body consumes it, so the provider always gets a rebuilt request.
     let processedRequest = request;
+    let tokenParams: URLSearchParams | null = null;
     if (url.pathname === '/oauth/token' && request.method === 'POST') {
       let body = await request.text();
-      const params = new URLSearchParams(body);
-      if (params.has('resource')) {
-        console.log(`[OAuth] Stripping resource param from token exchange: ${params.get('resource')}`);
-        params.delete('resource');
-        body = params.toString();
+      tokenParams = new URLSearchParams(body);
+      if (tokenParams.has('resource')) {
+        console.log(`[OAuth] Stripping resource param from token exchange: ${tokenParams.get('resource')}`);
+        tokenParams.delete('resource');
+        body = tokenParams.toString();
       }
       processedRequest = new Request(request, { body });
     }
@@ -225,17 +295,19 @@ export default {
       clientRegistrationEndpoint: '/oauth/register',
       scopesSupported: ['mcp'],
       accessTokenTTL: 3600,       // 1 hour
-      refreshTokenTTL: 2592000,   // 30 days
+      refreshTokenTTL: REFRESH_TOKEN_TTL,
       onError({ code, description, status, headers }) {
         console.log(`[OAuth Error] status=${status} code=${code} desc=${description}`);
-        // Add resource_metadata to WWW-Authenticate header on 401 (RFC 9728)
-        if (status === 401) {
-          const newHeaders = { ...headers };
-          newHeaders['WWW-Authenticate'] =
-            `Bearer resource_metadata="https://api.supadata.ai/.well-known/oauth-protected-resource"`;
+        // A rejected /mcp token tells the client it is the token that is bad
+        // (RFC 6750 §3.1) and where to re-authorize (RFC 9728 §5.1)
+        if (status === 401 && url.pathname.startsWith('/mcp')) {
           return new Response(JSON.stringify({ error: code, error_description: description }), {
             status,
-            headers: { ...newHeaders, 'Content-Type': 'application/json' },
+            headers: {
+              ...headers,
+              'Content-Type': 'application/json',
+              'WWW-Authenticate': `Bearer realm="OAuth", error="invalid_token", error_description="${description}", resource_metadata="${RESOURCE_METADATA_URL}"`,
+            },
           });
         }
       },
@@ -243,6 +315,10 @@ export default {
 
     let response = await provider.fetch(processedRequest, env, ctx);
     console.log(`[OAuth Response] ${url.pathname} -> ${response.status}`);
+
+    if (tokenParams && response.status >= 400) {
+      await logTokenError(env, request, tokenParams, response);
+    }
 
     if (AUTHORIZATION_SERVER_METADATA_PATHS.has(url.pathname) && response.ok) {
       response = withHeaders(response, { 'Cache-Control': METADATA_CACHE_CONTROL, Vary: 'Origin' });

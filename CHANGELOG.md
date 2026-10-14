@@ -2,12 +2,26 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Hosted server OAuth: a connection now lasts 90 days instead of 30 before the
+  client has to log in again. The lifetime is counted from login and is not
+  extended by refreshes; it applies to connections made after the deploy
+
 ### Fixed
 
 - The stdio server no longer writes its `[MCP] Calling Supadata…` log line to
   stdout, which is the JSON-RPC channel in stdio transport and could corrupt
   messages for MCP clients; logs now go to stderr. An ESLint `no-console` rule
   and a test that drives the stdio server keep stdout JSON-RPC only
+- `/mcp` 401 responses carry `error="invalid_token"` again alongside
+  `resource_metadata` in `WWW-Authenticate`; token endpoint 401s keep the
+  provider's own challenge
+
+### Added
+
+- Failed `/oauth/token` requests are logged as `[OAuth Token Error]` with the
+  error, grant type, client name and age, and whether the grant still exists
 
 ## [1.3.4] - 2026-10-14
 

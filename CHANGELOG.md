@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-10-14
+
 ### Changed
 
 - Hosted server OAuth: a connection no longer expires a fixed time after login.

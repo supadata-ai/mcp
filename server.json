@@ -1,0 +1,33 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.supadata-ai/mcp",
+  "title": "Supadata",
+  "description": "Video transcripts, metadata and structured data from YouTube, TikTok, Instagram, X; web scraping.",
+  "websiteUrl": "https://supadata.ai",
+  "repository": {
+    "url": "https://github.com/supadata-ai/mcp",
+    "source": "github"
+  },
+  "version": "1.3.2",
+  "icons": [
+    {
+      "src": "https://supadata.ai/apple-icon.png",
+      "mimeType": "image/png",
+      "sizes": ["512x512"]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.supadata.ai/mcp",
+      "headers": [
+        {
+          "name": "x-api-key",
+          "description": "Supadata API key (optional; OAuth is used when omitted). Get one at https://dash.supadata.ai",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

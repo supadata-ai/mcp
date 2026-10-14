@@ -6,6 +6,7 @@ import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
 import { createMcpServer } from './mcp.js';
 import { authHandler } from './auth-handler.js';
+import { resolveClient } from './client.js';
 
 const RESOURCE_METADATA_URL = 'https://api.supadata.ai/.well-known/oauth-protected-resource';
 
@@ -108,8 +109,9 @@ async function logTokenError(
   }));
 }
 
-// Handle MCP requests with a direct API key (legacy / backward-compatible)
-async function handleMcpWithApiKey(request: Request, apiKey: string): Promise<Response> {
+// Handle MCP requests with a direct API key (legacy / backward-compatible).
+// `clientName` is the OAuth client's registered name, when known.
+async function handleMcpWithApiKey(request: Request, apiKey: string, clientName?: string): Promise<Response> {
   if (request.method !== 'POST') {
     return new Response(
       JSON.stringify({
@@ -135,7 +137,11 @@ async function handleMcpWithApiKey(request: Request, apiKey: string): Promise<Re
       enableJsonResponse: true,
     });
 
-    const result = createMcpServer({ supadataApiKey: apiKey });
+    const result = createMcpServer({
+      supadataApiKey: apiKey,
+      client: resolveClient(request.headers, clientName),
+      transport: 'hosted',
+    });
     server = result.server;
 
     await server.connect(transport);
@@ -175,7 +181,8 @@ const mcpHandler = {
       );
     }
 
-    return handleMcpWithApiKey(request, apiKey);
+    // Grants issued before clientName was stored rely on header detection alone.
+    return handleMcpWithApiKey(request, apiKey, props.clientName);
   },
 };
 

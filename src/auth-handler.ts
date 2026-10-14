@@ -2,6 +2,8 @@ import type { AuthRequest, OAuthHelpers } from '@cloudflare/workers-oauth-provid
 import { Hono } from 'hono';
 import { jwtVerify } from 'jose';
 
+import { sanitizeClientName } from './client.js';
+
 type Env = {
   OAUTH_PROVIDER: OAuthHelpers;
   OAUTH_KV: KVNamespace;
@@ -11,6 +13,21 @@ type Env = {
 };
 
 const app = new Hono<{ Bindings: Env }>();
+
+// The client_name the OAuth client registered with (e.g. "Claude", "Cursor"),
+// sanitized for use in a User-Agent. A failed lookup must not block authorization.
+async function lookupClientName(
+  provider: OAuthHelpers,
+  clientId: string
+): Promise<string | undefined> {
+  try {
+    const client = await provider.lookupClient(clientId);
+    return sanitizeClientName(client?.clientName);
+  } catch (err: any) {
+    console.error('[Auth] lookupClient failed:', err?.message);
+    return undefined;
+  }
+}
 
 // Store OAuth request info in KV, keyed by a random state token
 async function createState(
@@ -78,6 +95,11 @@ app.get('/oauth/authorize', async (c) => {
   const dashboardUrl = new URL('/oauth/mcp', c.env.DASHBOARD_URL);
   dashboardUrl.searchParams.set('state', stateToken);
   dashboardUrl.searchParams.set('callback', callbackUrl);
+  // Lets the dashboard attribute the MCP connection to an AI client.
+  const clientName = await lookupClientName(c.env.OAUTH_PROVIDER, oauthReqInfo.clientId);
+  if (clientName) {
+    dashboardUrl.searchParams.set('client', clientName);
+  }
 
   console.log('[Auth] Redirecting to dashboard:', dashboardUrl.toString());
   return c.redirect(dashboardUrl.toString());
@@ -144,6 +166,8 @@ app.get('/oauth/callback', async (c) => {
 
   console.log('[Auth] JWT valid, userId:', userId, 'resource:', oauthReqInfo.resource);
 
+  const clientName = await lookupClientName(c.env.OAUTH_PROVIDER, oauthReqInfo.clientId);
+
   // Complete the OAuth authorization — the library issues its own tokens
   const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
     request: oauthReqInfo,
@@ -156,7 +180,8 @@ app.get('/oauth/callback', async (c) => {
       apiKey,
       userId,
       name,
-      email
+      email,
+      clientName
     }
   });
 

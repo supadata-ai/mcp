@@ -9,11 +9,19 @@ import { authHandler } from './auth-handler.js';
 
 const RESOURCE_METADATA_URL = 'https://api.supadata.ai/.well-known/oauth-protected-resource';
 
-// The provider's grant lifetime is fixed when the code is exchanged; refreshes
-// do not extend it, so a client is logged out this long after it connected.
-const REFRESH_TOKEN_TTL = 90 * 24 * 60 * 60;
+// The audience of every token the provider issues. Clients' own `resource`
+// values are stripped (see below), so tokens always get this one. Grants and
+// tokens written by 0.1.0 have no resource and are bound to it on their next
+// refresh.
+const RESOURCE = 'https://api.supadata.ai';
 
 const DAY = 24 * 60 * 60;
+
+// A connection lasts as long as it is used: every refresh moves the grant's
+// expiry to 30 days ahead, so only a client idle for 30 days has to log in
+// again. There is no absolute cap. The first lifetime, from the code exchange,
+// is the same 30 days.
+const REFRESH_TOKEN_IDLE_TTL = 30 * DAY;
 
 // Discovery documents are static; /.well-known/oauth-authorization-server alone
 // gets ~93k hits/day, so let clients and caches keep them for an hour.
@@ -43,6 +51,21 @@ function withHeaders(response: Response, headers: Record<string, string>): Respo
     result.headers.set(name, value);
   }
   return result;
+}
+
+// A rejected /mcp request tells the client it is the token that is bad
+// (RFC 6750 §3.1) and where to re-authorize (RFC 9728 §5.1)
+function invalidTokenResponse(description: string, headers: HeadersInit = {}): Response {
+  const result = new Headers(headers);
+  result.set('Content-Type', 'application/json');
+  result.set(
+    'WWW-Authenticate',
+    `Bearer realm="OAuth", error="invalid_token", error_description="${description}", resource_metadata="${RESOURCE_METADATA_URL}"`,
+  );
+  return new Response(JSON.stringify({ error: 'invalid_token', error_description: description }), {
+    status: 401,
+    headers: result,
+  });
 }
 
 function daysSince(seconds: number, now: number): number {
@@ -250,15 +273,21 @@ export default {
     // Log all requests for debugging
     console.log(`[OAuth] ${request.method} ${url.pathname} (auth: ${request.headers.has('authorization') ? 'Bearer' : 'none'})`);
 
-    // Strip `resource` parameter from token exchange requests.
-    // Claude sends resource=https://api.supadata.ai/ (trailing slash) which gets stored
-    // as the token audience. The library then validates tokens against protocol://host
-    // (no trailing slash) using strict equality, causing every MCP request to fail with
-    // "Token audience does not match resource server". Removing `resource` from both
-    // the grant (auth-handler) and the token exchange body prevents audience from being set.
-    // Reading the body consumes it, so the provider always gets a rebuilt request.
+    // Strip the `resource` parameter from authorization and token requests.
+    // Clients send whichever resource their discovery found: Claude sends
+    // https://api.supadata.ai/ (root metadata), path-aware clients send
+    // https://api.supadata.ai/mcp. The provider compares it with RESOURCE
+    // exactly and would refuse one or the other with invalid_target. Without
+    // it, the provider uses RESOURCE, which is also what every existing grant
+    // inherits. Reading the body consumes it, so the provider always gets a
+    // rebuilt token request.
     let processedRequest = request;
     let tokenParams: URLSearchParams | null = null;
+    if (url.pathname === '/oauth/authorize' && url.searchParams.has('resource')) {
+      const authorizeUrl = new URL(url);
+      authorizeUrl.searchParams.delete('resource');
+      processedRequest = new Request(authorizeUrl, request);
+    }
     if (url.pathname === '/oauth/token' && request.method === 'POST') {
       let body = await request.text();
       tokenParams = new URLSearchParams(body);
@@ -287,27 +316,34 @@ export default {
       tokenEndpoint: '/oauth/token',
       clientRegistrationEndpoint: '/oauth/register',
       scopesSupported: ['mcp'],
+      resourceMetadata: { resource: RESOURCE },
       accessTokenTTL: 3600,       // 1 hour
-      refreshTokenTTL: REFRESH_TOKEN_TTL,
-      onError({ code, description, status, headers }) {
-        console.log(`[OAuth Error] status=${status} code=${code} desc=${description}`);
-        // A rejected /mcp token tells the client it is the token that is bad
-        // (RFC 6750 §3.1) and where to re-authorize (RFC 9728 §5.1)
+      refreshTokenTTL: REFRESH_TOKEN_IDLE_TTL,
+      refreshTokenIdleTTL: REFRESH_TOKEN_IDLE_TTL,
+      // 0.1.0 accepted any non-dangerous redirect scheme, and desktop clients
+      // registered custom ones (cursor://…). Keep them working; remote http is
+      // refused regardless.
+      allowPrivateUseRedirectUris: true,
+      onError({ code, description, status, headers, internal }) {
+        console.log(`[OAuth Error] status=${status} code=${code} desc=${description} reason=${internal?.category}/${internal?.reason}`);
         if (status === 401 && url.pathname.startsWith('/mcp')) {
-          return new Response(JSON.stringify({ error: code, error_description: description }), {
-            status,
-            headers: {
-              ...headers,
-              'Content-Type': 'application/json',
-              'WWW-Authenticate': `Bearer realm="OAuth", error="invalid_token", error_description="${description}", resource_metadata="${RESOURCE_METADATA_URL}"`,
-            },
-          });
+          return invalidTokenResponse(description, headers);
         }
       },
     });
 
     let response = await provider.fetch(processedRequest, env, ctx);
     console.log(`[OAuth Response] ${url.pathname} -> ${response.status}`);
+
+    // A request without a token gets a bare challenge without calling onError;
+    // answer it like 0.1.0 did, with invalid_token
+    if (
+      url.pathname.startsWith('/mcp') &&
+      response.status === 401 &&
+      !response.headers.get('www-authenticate')?.includes('error=')
+    ) {
+      response = invalidTokenResponse('Missing or invalid access token', response.headers);
+    }
 
     if (tokenParams && response.status >= 400) {
       await logTokenError(env, request, tokenParams, response);
@@ -317,14 +353,13 @@ export default {
       response = withHeaders(response, { 'Cache-Control': METADATA_CACHE_CONTROL, Vary: 'Origin' });
     }
 
-    // The provider returns a relative `registration_client_uri` ("/oauth/register/<id>")
-    // for a client-management endpoint (RFC 7592) it doesn't implement. RFC 7591
-    // clients that validate it as a URL reject the whole registration response,
-    // so drop it.
-    if (url.pathname === '/oauth/register' && response.status === 201) {
-      const registration = (await response.json()) as Record<string, unknown>;
-      delete registration.registration_client_uri;
-      response = new Response(JSON.stringify(registration), response);
+    // The provider echoes the token's audience as `resource`. Clients never get
+    // the resource they asked for (it is stripped above), so don't send one
+    // that may not match what they asked for; 0.1.0 sent none.
+    if (tokenParams && response.ok) {
+      const tokens = (await response.json()) as Record<string, unknown>;
+      delete tokens.resource;
+      response = new Response(JSON.stringify(tokens), response);
     }
 
     return response;

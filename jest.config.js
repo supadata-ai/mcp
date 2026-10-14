@@ -11,6 +11,7 @@ export default {
     ],
   },
   moduleNameMapper: {
+    '^cloudflare:workers$': '<rootDir>/test/cloudflare-workers-stub.js',
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   testMatch: ['**/*.test.ts'],

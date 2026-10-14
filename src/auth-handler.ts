@@ -38,15 +38,52 @@ async function createState(
   await kv.put(
     `oauth_state:${stateToken}`,
     JSON.stringify(oauthReqInfo),
-    { expirationTtl: 600 } // 10 minutes
+    // 1 hour: a new user may have to sign up and verify their email first
+    { expirationTtl: 3600 }
   );
   return stateToken;
+}
+
+// parseAuthRequest throws for an unknown client_id, a redirect_uri that isn't
+// registered, or a malformed `resource`. The redirect_uri can't be trusted then,
+// so answer directly (RFC 6749 §4.1.2.1) instead of redirecting.
+async function invalidAuthRequest(
+  oauthProvider: OAuthHelpers,
+  url: URL,
+  err: unknown
+): Promise<Response> {
+  const message = err instanceof Error ? err.message : String(err);
+  const clientId = url.searchParams.get('client_id') || '';
+  const redirectUri = url.searchParams.get('redirect_uri') || '';
+  const client = clientId ? await oauthProvider.lookupClient(clientId).catch(() => null) : null;
+  console.warn('[Auth] Invalid authorization request:', JSON.stringify({
+    error: message,
+    clientId,
+    clientName: client?.clientName,
+    redirectUri,
+    registeredRedirectUris: client?.redirectUris,
+  }));
+
+  const error = message.startsWith('Invalid client')
+    ? 'invalid_client'
+    : message.startsWith('Invalid redirect URI')
+      ? 'invalid_redirect_uri'
+      : 'invalid_request';
+  return new Response(JSON.stringify({ error, error_description: message }), {
+    status: 400,
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
 
 // GET /oauth/authorize — redirect to dashboard for login
 app.get('/oauth/authorize', async (c) => {
   console.log('[Auth] /oauth/authorize hit');
-  const oauthReqInfo = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
+  let oauthReqInfo: AuthRequest;
+  try {
+    oauthReqInfo = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
+  } catch (err) {
+    return invalidAuthRequest(c.env.OAUTH_PROVIDER, new URL(c.req.url), err);
+  }
   console.log('[Auth] Parsed auth request:', JSON.stringify({ clientId: oauthReqInfo.clientId, redirectUri: oauthReqInfo.redirectUri, scope: oauthReqInfo.scope, resource: oauthReqInfo.resource }));
   if (!oauthReqInfo.clientId) {
     return c.text('Invalid request: missing client_id', 400);

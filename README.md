@@ -47,9 +47,10 @@ The same tools are served over Streamable HTTP by the Cloudflare Worker in
 Run it locally with `npm run dev` (wrangler). Direct `x-api-key` header
 authentication is also accepted on `/mcp`.
 
-An OAuth connection lasts 90 days from login. When it runs out, clients have to
-log in again; Codex keeps retrying the expired login instead of asking, so run
-`codex mcp login supadata` if Supadata tools stop working in Codex.
+An OAuth connection stays alive while it is used and expires after 30 days
+without use. Then clients have to log in again; Codex keeps retrying the
+expired login instead of asking, so run `codex mcp login supadata` if Supadata
+tools stop working in Codex.
 
 ## Configuration
 

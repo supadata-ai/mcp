@@ -2,11 +2,19 @@
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-10-14
+
 ### Changed
 
-- Hosted server OAuth: a connection now lasts 90 days instead of 30 before the
-  client has to log in again. The lifetime is counted from login and is not
-  extended by refreshes; it applies to connections made after the deploy
+- Hosted server OAuth: a connection no longer expires a fixed time after login.
+  Every token refresh extends it to 30 days ahead, so it lasts as long as the
+  client uses it and expires after 30 days without use. This also applies to
+  connections made before the deploy, from their next refresh
+- `@cloudflare/workers-oauth-provider` upgraded from 0.1.0 to 1.2.3. Existing
+  connections and registered clients keep working without logging in again.
+  Authorization requests from public clients must use S256 PKCE, and an
+  authorization error found after the redirect URI is validated (such as
+  missing PKCE) is sent back to the client's redirect URI instead of a 400
 
 ### Fixed
 
@@ -22,6 +30,8 @@
 
 - Failed `/oauth/token` requests are logged as `[OAuth Token Error]` with the
   error, grant type, client name and age, and whether the grant still exists
+- `[OAuth Error]` log lines name the provider's internal reason, such as
+  `refresh-token-grant/refresh_token_mismatch` or `grant_not_found`
 
 ## [1.3.4] - 2026-10-14
 

@@ -1,4 +1,4 @@
-import type { AuthRequest, OAuthHelpers } from '@cloudflare/workers-oauth-provider';
+import { AuthorizationError, type AuthRequest, type OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 import { Hono } from 'hono';
 import { jwtVerify } from 'jose';
 
@@ -44,15 +44,17 @@ async function createState(
   return stateToken;
 }
 
-// parseAuthRequest throws for an unknown client_id, a redirect_uri that isn't
-// registered, or a malformed `resource`. The redirect_uri can't be trusted then,
-// so answer directly (RFC 6749 §4.1.2.1) instead of redirecting.
+// parseAuthRequest throws for an unknown client_id or a redirect_uri that isn't
+// registered. The redirect_uri can't be trusted then, so answer directly
+// (RFC 6749 §4.1.2.1). Errors found after the redirect_uri was validated, such
+// as missing PKCE, carry a ready-made `redirectTo` back to the client instead.
 async function invalidAuthRequest(
   oauthProvider: OAuthHelpers,
   url: URL,
   err: unknown
 ): Promise<Response> {
   const message = err instanceof Error ? err.message : String(err);
+  const redirectTo = err instanceof AuthorizationError ? err.redirectTo : undefined;
   const clientId = url.searchParams.get('client_id') || '';
   const redirectUri = url.searchParams.get('redirect_uri') || '';
   const client = clientId ? await oauthProvider.lookupClient(clientId).catch(() => null) : null;
@@ -62,7 +64,12 @@ async function invalidAuthRequest(
     clientName: client?.clientName,
     redirectUri,
     registeredRedirectUris: client?.redirectUris,
+    redirected: Boolean(redirectTo),
   }));
+
+  if (redirectTo) {
+    return Response.redirect(redirectTo, 302);
+  }
 
   const error = message.startsWith('Invalid client')
     ? 'invalid_client'
@@ -157,13 +164,8 @@ app.get('/oauth/callback', async (c) => {
     return c.text('Invalid token claims', 400);
   }
 
-  // Remove resource parameter to avoid audience validation issues.
-  // Claude sends resource=https://api.supadata.ai/ (trailing slash) but the library
-  // validates tokens against protocol://host (no slash) using strict equality.
-  // This mismatch causes "Token audience does not match resource server" on every
-  // MCP request. Removing resource skips audience validation entirely.
-  delete (oauthReqInfo as any).resource;
-
+  // `resource` is the provider's configured resource: the worker strips the
+  // client's own value before parseAuthRequest (see worker.ts)
   console.log('[Auth] JWT valid, userId:', userId, 'resource:', oauthReqInfo.resource);
 
   const clientName = await lookupClientName(c.env.OAUTH_PROVIDER, oauthReqInfo.clientId);

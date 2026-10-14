@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- The stdio server no longer writes its `[MCP] Calling Supadata…` log line to
+  stdout, which is the JSON-RPC channel in stdio transport and could corrupt
+  messages for MCP clients; logs now go to stderr. An ESLint `no-console` rule
+  and a test that drives the stdio server keep stdout JSON-RPC only
+
 ## [1.3.2] - 2026-10-09
 
 ### Fixed

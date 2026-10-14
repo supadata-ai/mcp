@@ -25,7 +25,7 @@ export class SupadataApiError extends Error {
 }
 
 async function callSupadata(path: string, args: any, apiKey: string, method: 'GET' | 'POST' = 'GET') {
-  console.log(`[MCP] Calling Supadata: ${method} ${path}, Key length: ${apiKey?.length ?? 0}`);
+  console.error(`[MCP] Calling Supadata: ${method} ${path}, Key length: ${apiKey?.length ?? 0}`);
 
   let url = `https://api.supadata.ai/v1${path}`;
   const headers: Record<string, string> = {

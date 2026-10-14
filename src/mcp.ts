@@ -40,7 +40,7 @@ export function buildUserAgent(client: string, transport: Transport) {
 }
 
 async function callSupadata(path: string, args: any, ctx: RequestContext, method: 'GET' | 'POST' = 'GET') {
-  console.log(`[MCP] Calling Supadata: ${method} ${path}, Key length: ${ctx.apiKey?.length ?? 0}, UA: ${ctx.userAgent}`);
+  console.error(`[MCP] Calling Supadata: ${method} ${path}, Key length: ${ctx.apiKey?.length ?? 0}, UA: ${ctx.userAgent}`);
 
   let url = `https://api.supadata.ai/v1${path}`;
   const headers: Record<string, string> = {

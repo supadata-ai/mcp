@@ -2,10 +2,12 @@ import { describe, expect, jest, test, beforeEach, afterEach } from '@jest/globa
 import { readFileSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { callTool, createMcpServer, listTools, retryConfig } from './mcp.js';
+import { buildUserAgent, callTool, createMcpServer, listTools, retryConfig } from './mcp.js';
+import { detectClient, resolveClient, sanitizeClientName } from './client.js';
 import { VERSION } from './version.js';
 
 const API_KEY = 'test-api-key';
+const CTX = { apiKey: API_KEY, userAgent: buildUserAgent('test-client', 'hosted') };
 
 describe('mcp tool registry', () => {
   let fetchMock: jest.Mock<any>;
@@ -64,7 +66,7 @@ describe('mcp tool registry', () => {
     await callTool(
       'supadata_scrape',
       { url: 'https://supadata.ai', noLinks: true, lang: 'de' },
-      API_KEY
+      CTX
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -76,10 +78,13 @@ describe('mcp tool registry', () => {
     expect(parsed.searchParams.get('lang')).toBe('de');
     expect(init.method).toBe('GET');
     expect((init.headers as Record<string, string>)['x-api-key']).toBe(API_KEY);
+    expect((init.headers as Record<string, string>)['User-Agent']).toBe(
+      `supadata-mcp/${VERSION} (test-client; hosted)`
+    );
   });
 
   test('supadata_scrape omits optional params when not provided', async () => {
-    await callTool('supadata_scrape', { url: 'https://supadata.ai' }, API_KEY);
+    await callTool('supadata_scrape', { url: 'https://supadata.ai' }, CTX);
 
     const [url] = fetchMock.mock.calls[0] as [string];
     const parsed = new URL(url);
@@ -93,17 +98,17 @@ describe('mcp tool registry', () => {
       json: async () => ({ status: 'active' }),
     }));
 
-    const result = await callTool('supadata_check_transcript_status', { id: 'job-1' }, API_KEY);
+    const result = await callTool('supadata_check_transcript_status', { id: 'job-1' }, CTX);
     expect(result.status).toBe('active');
     expect(result._polling.retry_after_seconds).toBe(5);
   });
 
   test('unknown tool throws', async () => {
-    await expect(callTool('nope', {}, API_KEY)).rejects.toThrow('Unknown tool: nope');
+    await expect(callTool('nope', {}, CTX)).rejects.toThrow('Unknown tool: nope');
   });
 
   test('unknown tool throws for inherited object keys', async () => {
-    await expect(callTool('toString', {}, API_KEY)).rejects.toThrow('Unknown tool: toString');
+    await expect(callTool('toString', {}, CTX)).rejects.toThrow('Unknown tool: toString');
   });
 });
 
@@ -313,5 +318,102 @@ describe('CallTool over the MCP protocol', () => {
   test('an unknown tool is still a protocol error', async () => {
     await expect(client.callTool({ name: 'nope', arguments: {} })).rejects.toThrow(/Unknown tool: nope/);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('User-Agent sent to the Supadata API', () => {
+  const originalFetch = globalThis.fetch;
+  let fetchMock: jest.Mock<any>;
+
+  beforeEach(() => {
+    fetchMock = jest.fn(async () => ({ ok: true, json: async () => ({}) })) as any;
+    (globalThis as any).fetch = fetchMock;
+  });
+
+  afterEach(() => {
+    (globalThis as any).fetch = originalFetch;
+  });
+
+  async function userAgentFor(config: Parameters<typeof createMcpServer>[0]) {
+    const { server } = createMcpServer(config);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'My Client', version: '0.0.0' });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    await client.callTool({ name: 'supadata_metadata', arguments: { url: 'https://youtu.be/abc' } });
+    await client.close();
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    return (init.headers as Record<string, string>)['User-Agent'];
+  }
+
+  test('hosted: uses the detected client', async () => {
+    expect(
+      await userAgentFor({ supadataApiKey: API_KEY, client: 'Claude-ClaudeAI', transport: 'hosted' })
+    ).toBe(`supadata-mcp/${VERSION} (Claude-ClaudeAI; hosted)`);
+  });
+
+  test('stdio: falls back to the MCP clientInfo name', async () => {
+    expect(await userAgentFor({ supadataApiKey: API_KEY, transport: 'stdio' })).toBe(
+      `supadata-mcp/${VERSION} (My-Client; stdio)`
+    );
+  });
+
+  test('defaults to the stdio transport', async () => {
+    expect(await userAgentFor({ supadataApiKey: API_KEY, client: 'Cursor' })).toBe(
+      `supadata-mcp/${VERSION} (Cursor; stdio)`
+    );
+  });
+});
+
+describe('detectClient', () => {
+  test.each([
+    [{ 'x-anthropic-client': 'ClaudeAI', 'user-agent': 'Claude-User' }, 'Claude-ClaudeAI'],
+    [{ 'x-anthropic-client': 'ClaudeCode' }, 'Claude-ClaudeCode'],
+    [{ 'x-anthropic-client': 'Cowork' }, 'Claude-Cowork'],
+    [{ 'user-agent': 'Claude-User' }, 'Claude'],
+    [{ 'x-openai-subject': 'abc', 'user-agent': 'python-httpx/0.27' }, 'ChatGPT'],
+    [{ 'user-agent': 'openai-mcp/1.0.0' }, 'ChatGPT'],
+    [{ 'user-agent': 'codex-mcp-client/0.46.0' }, 'Codex'],
+    [{ 'user-agent': 'claude-code/2.0.14 (sdk-cli)' }, 'ClaudeCode-local'],
+    [{ 'user-agent': 'Cursor/1.7.0 (darwin arm64)' }, 'Cursor'],
+    [{ 'user-agent': 'node-fetch/1.0 (+https://github.com/bitinn/node-fetch)' }, 'node-fetch'],
+    [{ 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' }, 'Mozilla'],
+    [{ 'user-agent': 'node' }, 'node'],
+    [{ 'user-agent': '   ' }, 'unknown'],
+    [{}, 'unknown'],
+  ])('%j -> %s', (headers, expected) => {
+    expect(detectClient(new Headers(headers as Record<string, string>))).toBe(expected);
+  });
+});
+
+describe('resolveClient', () => {
+  test.each([
+    // A client recognised from the headers beats the OAuth client name.
+    [{ 'x-anthropic-client': 'ClaudeAI' }, 'Claude', 'Claude-ClaudeAI'],
+    [{ 'x-anthropic-client': 'Cowork' }, 'Claude', 'Claude-Cowork'],
+    [{ 'user-agent': 'codex-mcp-client/0.46.0' }, 'Codex CLI', 'Codex'],
+    // Otherwise the OAuth client name beats the generic User-Agent fallback.
+    [{ 'user-agent': 'node-fetch/1.0' }, 'Some App', 'Some-App'],
+    [{}, 'Some App', 'Some-App'],
+    // Old grants without a client name use header detection alone.
+    [{ 'user-agent': 'node-fetch/1.0' }, undefined, 'node-fetch'],
+    [{}, undefined, 'unknown'],
+    [{}, '()', 'unknown'],
+  ])('%j with OAuth client %j -> %s', (headers, clientName, expected) => {
+    expect(resolveClient(new Headers(headers as Record<string, string>), clientName)).toBe(expected);
+  });
+});
+
+describe('sanitizeClientName', () => {
+  test.each([
+    ['Claude', 'Claude'],
+    ['Claude Code (supadata)', 'Claude-Code-supadata'],
+    ['my;client)', 'my-client'],
+    ['a'.repeat(60), 'a'.repeat(40)],
+    ['', undefined],
+    ['()', undefined],
+    [undefined, undefined],
+    [null, undefined],
+  ])('%j -> %j', (input, expected) => {
+    expect(sanitizeClientName(input)).toBe(expected);
   });
 });

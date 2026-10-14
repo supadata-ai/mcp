@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-10-14
+
+### Fixed
+
+- Hosted server OAuth: path-aware discovery URLs
+  (`/.well-known/oauth-protected-resource/mcp`,
+  `/.well-known/oauth-authorization-server/mcp`) are served by the worker instead
+  of returning 401 from the main API, and `/.well-known/openid-configuration`
+  returns 404. The `/mcp` protected resource document names
+  `https://api.supadata.ai/mcp` as its resource (RFC 9728 §3.3)
+- Client registration responses no longer include a relative
+  `registration_client_uri` for an endpoint the server does not implement
+- A token request without a `resource` parameter no longer fails with a 500
+  (the request body was read twice)
+- An authorization request with an unknown `client_id` or unregistered
+  `redirect_uri` returns a 400 OAuth error instead of a 500, and is logged with
+  the client name and redirect URI
+- A pending authorization now lasts 1 hour instead of 10 minutes, so a new user
+  can sign up and verify their email before connecting
+- The OAuth 401 for a token without an API key carries `WWW-Authenticate` with
+  `resource_metadata`
+
+### Changed
+
+- Discovery documents are sent with `Cache-Control: public, max-age=3600`
+
 ## [1.3.3] - 2026-10-12
 
 ### Added

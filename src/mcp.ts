@@ -7,6 +7,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
+import { sanitizeClientName } from './client.js';
 import { VERSION } from './version.js';
 
 // A non-2xx response from the Supadata API. Carries the HTTP status and the API's
@@ -24,13 +25,28 @@ export class SupadataApiError extends Error {
   }
 }
 
-async function callSupadata(path: string, args: any, apiKey: string, method: 'GET' | 'POST' = 'GET') {
-  console.log(`[MCP] Calling Supadata: ${method} ${path}, Key length: ${apiKey?.length ?? 0}`);
+export type Transport = 'hosted' | 'stdio';
+
+// Per-request credentials and identity for calls to the Supadata API.
+export type RequestContext = {
+  apiKey: string;
+  userAgent: string;
+};
+
+// The User-Agent tells the API's request logs which AI client and transport the
+// traffic came from, e.g. "supadata-mcp/1.3.3 (Claude-ClaudeAI; hosted)".
+export function buildUserAgent(client: string, transport: Transport) {
+  return `supadata-mcp/${VERSION} (${client}; ${transport})`;
+}
+
+async function callSupadata(path: string, args: any, ctx: RequestContext, method: 'GET' | 'POST' = 'GET') {
+  console.log(`[MCP] Calling Supadata: ${method} ${path}, Key length: ${ctx.apiKey?.length ?? 0}, UA: ${ctx.userAgent}`);
 
   let url = `https://api.supadata.ai/v1${path}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'x-api-key': apiKey,
+    'x-api-key': ctx.apiKey,
+    'User-Agent': ctx.userAgent,
   };
 
   let body = undefined;
@@ -179,8 +195,8 @@ const toolRegistry = {
         required: ['url'],
       },
     },
-    handler: (args: any, apiKey: string) =>
-      callSupadata('/transcript', args, apiKey, 'GET'),
+    handler: (args: any, ctx: RequestContext) =>
+      callSupadata('/transcript', args, ctx, 'GET'),
   },
 
   supadata_check_transcript_status: {
@@ -206,9 +222,9 @@ const toolRegistry = {
         required: ['id'],
       },
     },
-    handler: async (args: any, apiKey: string) => {
+    handler: async (args: any, ctx: RequestContext) => {
       const id = args.id;
-      const result = await callSupadata(`/transcript/${id}`, {}, apiKey, 'GET');
+      const result = await callSupadata(`/transcript/${id}`, {}, ctx, 'GET');
       return addPollingHint(result, 'supadata_check_transcript_status', id);
     },
   },
@@ -244,8 +260,8 @@ const toolRegistry = {
         required: ['url'],
       },
     },
-    handler: (args: any, apiKey: string) =>
-      callSupadata('/web/scrape', args, apiKey, 'GET'),
+    handler: (args: any, ctx: RequestContext) =>
+      callSupadata('/web/scrape', args, ctx, 'GET'),
   },
 
   supadata_map: {
@@ -271,8 +287,8 @@ const toolRegistry = {
         required: ['url'],
       },
     },
-    handler: (args: any, apiKey: string) =>
-      callSupadata('/web/map', args, apiKey, 'GET'),
+    handler: (args: any, ctx: RequestContext) =>
+      callSupadata('/web/map', args, ctx, 'GET'),
   },
 
   supadata_crawl: {
@@ -304,8 +320,8 @@ const toolRegistry = {
         required: ['url'],
       },
     },
-    handler: (args: any, apiKey: string) =>
-      callSupadata('/web/crawl', args, apiKey, 'POST'),
+    handler: (args: any, ctx: RequestContext) =>
+      callSupadata('/web/crawl', args, ctx, 'POST'),
   },
 
   supadata_check_crawl_status: {
@@ -331,9 +347,9 @@ const toolRegistry = {
         required: ['id'],
       },
     },
-    handler: async (args: any, apiKey: string) => {
+    handler: async (args: any, ctx: RequestContext) => {
       const id = args.id;
-      const result = await callSupadata(`/web/crawl/${id}`, {}, apiKey, 'GET');
+      const result = await callSupadata(`/web/crawl/${id}`, {}, ctx, 'GET');
       return addPollingHint(result, 'supadata_check_crawl_status', id, ['scraping']);
     },
   },
@@ -361,8 +377,8 @@ const toolRegistry = {
         required: ['url'],
       },
     },
-    handler: (args: any, apiKey: string) =>
-      callSupadata('/metadata', args, apiKey, 'GET'),
+    handler: (args: any, ctx: RequestContext) =>
+      callSupadata('/metadata', args, ctx, 'GET'),
   },
 
   supadata_extract: {
@@ -396,8 +412,8 @@ const toolRegistry = {
         required: ['url'],
       },
     },
-    handler: (args: any, apiKey: string) =>
-      callSupadata('/extract', args, apiKey, 'POST'),
+    handler: (args: any, ctx: RequestContext) =>
+      callSupadata('/extract', args, ctx, 'POST'),
   },
 
   supadata_check_extract_status: {
@@ -423,9 +439,9 @@ const toolRegistry = {
         required: ['id'],
       },
     },
-    handler: async (args: any, apiKey: string) => {
+    handler: async (args: any, ctx: RequestContext) => {
       const id = args.id;
-      const result = await callSupadata(`/extract/${id}`, {}, apiKey, 'GET');
+      const result = await callSupadata(`/extract/${id}`, {}, ctx, 'GET');
       return addPollingHint(result, 'supadata_check_extract_status', id);
     },
   },
@@ -438,7 +454,7 @@ export function listTools() {
 export async function callTool(
   name: string,
   args: any,
-  apiKey: string
+  ctx: RequestContext
 ) {
   const tool = (toolRegistry as any)[name];
   if (!Object.prototype.hasOwnProperty.call(toolRegistry, name)) {
@@ -449,7 +465,7 @@ export async function callTool(
       throw new Error(`Missing required argument "${field}" for ${name}`);
     }
   }
-  return tool.handler(args, apiKey);
+  return tool.handler(args, ctx);
 }
 
 /**
@@ -546,6 +562,10 @@ export const configSchema = z.object({
 export function createMcpServer(config: {
   supadataApiKey: string;
   debug?: boolean;
+  // AI client making the requests (see detectClient). When unset, the name the
+  // client sent in its MCP initialize request is used.
+  client?: string;
+  transport?: Transport;
 }) {
   const server = new Server(
     { name: 'supadata', version: VERSION },
@@ -570,9 +590,16 @@ export function createMcpServer(config: {
         throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${name}`);
       }
 
+      const client =
+        config.client ?? sanitizeClientName(server.getClientVersion()?.name) ?? 'unknown';
+      const ctx: RequestContext = {
+        apiKey: config.supadataApiKey,
+        userAgent: buildUserAgent(client, config.transport ?? 'stdio'),
+      };
+
       let result;
       try {
-        result = await callTool(name, req.params.arguments ?? {}, config.supadataApiKey);
+        result = await callTool(name, req.params.arguments ?? {}, ctx);
       } catch (err) {
         return toolErrorResult(err, name);
       }

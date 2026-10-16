@@ -504,6 +504,28 @@ export function toolErrorResult(err: unknown, toolName?: string) {
   };
 }
 
+// Name used in place of a result's top-level `content` key, per tool.
+const CONTENT_KEY_RENAMES: Record<string, string> = {
+  supadata_transcript: 'transcript',
+  supadata_check_transcript_status: 'transcript',
+  supadata_scrape: 'markdown',
+};
+
+/**
+ * ChatGPT shows the model `{}` for a JSON tool result with a top-level
+ * `content` key (transcript and scrape results were affected, metadata was
+ * not). For ChatGPT only, rename that key; every other client gets the same
+ * shape as the REST API.
+ */
+export function renameContentKey(result: any, toolName: string, client: string) {
+  const key = CONTENT_KEY_RENAMES[toolName];
+  if (client !== 'ChatGPT' || !key || !result || typeof result !== 'object' || !('content' in result)) {
+    return result;
+  }
+  const { content, ...rest } = result;
+  return { ...rest, [key]: content };
+}
+
 const VIDEO_TOOLS = ['supadata_transcript', 'supadata_metadata', 'supadata_extract'];
 const STATUS_TOOLS = [
   'supadata_check_transcript_status',
@@ -608,7 +630,7 @@ export function createMcpServer(config: {
         content: [
           {
             type: 'text',
-            text: JSON.stringify(result),
+            text: JSON.stringify(renameContentKey(result, name, client)),
           },
         ],
       };

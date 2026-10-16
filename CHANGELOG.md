@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.3.6] - 2026-10-16
+
+### Fixed
+
+- Transcripts and scraped pages reach ChatGPT. ChatGPT gave the model `{}` for
+  a JSON tool result with a top-level `content` key. For ChatGPT only, that
+  key is now `transcript` (`supadata_transcript`,
+  `supadata_check_transcript_status`) or `markdown` (`supadata_scrape`); other
+  clients keep the REST API's `content`
+
 ## [1.3.5] - 2026-10-14
 
 ### Changed

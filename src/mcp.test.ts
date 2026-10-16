@@ -2,7 +2,7 @@ import { describe, expect, jest, test, beforeEach, afterEach } from '@jest/globa
 import { readFileSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { buildUserAgent, callTool, createMcpServer, listTools, retryConfig } from './mcp.js';
+import { buildUserAgent, callTool, createMcpServer, listTools, renameContentKey, retryConfig } from './mcp.js';
 import { detectClient, resolveClient, sanitizeClientName } from './client.js';
 import { VERSION } from './version.js';
 
@@ -147,6 +147,39 @@ describe('CallTool over the MCP protocol', () => {
 
     expect(result.isError).toBeFalsy();
     expect(JSON.parse(result.content[0].text)).toEqual({ title: 'x' });
+  });
+
+  test('keeps the API content key for clients other than ChatGPT', async () => {
+    fetchMock.mockImplementationOnce(async () => ({
+      ok: true,
+      json: async () => ({ lang: 'en', content: 'hello world' }),
+    }));
+
+    const result: any = await client.callTool({
+      name: 'supadata_transcript',
+      arguments: { url: 'https://youtu.be/abc', text: true },
+    });
+
+    expect(JSON.parse(result.content[0].text)).toEqual({ lang: 'en', content: 'hello world' });
+  });
+
+  test('renames the content key for ChatGPT', async () => {
+    const { server } = createMcpServer({ supadataApiKey: API_KEY, client: 'ChatGPT', transport: 'hosted' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const chatgpt = new Client({ name: 'openai-mcp', version: '1.0.0' });
+    await Promise.all([server.connect(serverTransport), chatgpt.connect(clientTransport)]);
+    fetchMock.mockImplementationOnce(async () => ({
+      ok: true,
+      json: async () => ({ lang: 'en', content: 'hello world' }),
+    }));
+
+    const result: any = await chatgpt.callTool({
+      name: 'supadata_transcript',
+      arguments: { url: 'https://youtu.be/abc', text: true },
+    });
+    await chatgpt.close();
+
+    expect(JSON.parse(result.content[0].text)).toEqual({ lang: 'en', transcript: 'hello world' });
   });
 
   test('an API 404 is a tool error result, not a JSON-RPC error', async () => {
@@ -415,5 +448,37 @@ describe('sanitizeClientName', () => {
     [null, undefined],
   ])('%j -> %j', (input, expected) => {
     expect(sanitizeClientName(input)).toBe(expected);
+  });
+});
+
+describe('renameContentKey', () => {
+  const segments = [{ text: 'hi', offset: 0, duration: 1000, lang: 'en' }];
+
+  test.each([
+    ['supadata_transcript', 'transcript'],
+    ['supadata_check_transcript_status', 'transcript'],
+    ['supadata_scrape', 'markdown'],
+  ])('%s: content -> %s for ChatGPT', (tool, key) => {
+    expect(renameContentKey({ lang: 'en', content: segments }, tool, 'ChatGPT')).toEqual({
+      lang: 'en',
+      [key]: segments,
+    });
+  });
+
+  test('leaves other clients unchanged', () => {
+    const result = { lang: 'en', content: 'x' };
+    expect(renameContentKey(result, 'supadata_transcript', 'Claude-ClaudeAI')).toBe(result);
+  });
+
+  test('leaves other tools unchanged', () => {
+    const result = { status: 'completed', pages: [{ url: 'u', content: 'x' }] };
+    expect(renameContentKey(result, 'supadata_check_crawl_status', 'ChatGPT')).toBe(result);
+  });
+
+  test('leaves job ids and status results without content unchanged', () => {
+    expect(renameContentKey({ jobId: 'j' }, 'supadata_transcript', 'ChatGPT')).toEqual({ jobId: 'j' });
+    expect(renameContentKey({ status: 'active' }, 'supadata_check_transcript_status', 'ChatGPT')).toEqual({
+      status: 'active',
+    });
   });
 });

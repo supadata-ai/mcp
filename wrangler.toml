@@ -8,6 +8,7 @@ routes = [
   { pattern = "api.supadata.ai/.well-known/oauth-authorization-server/mcp", zone_name = "supadata.ai" },
   { pattern = "api.supadata.ai/.well-known/oauth-protected-resource/mcp", zone_name = "supadata.ai" },
   { pattern = "api.supadata.ai/.well-known/openid-configuration", zone_name = "supadata.ai" },
+  { pattern = "api.supadata.ai/.well-known/openai-apps-challenge", zone_name = "supadata.ai" },
   { pattern = "api.supadata.ai/oauth/*", zone_name = "supadata.ai" },
 ]
 

@@ -178,6 +178,13 @@ describe('discovery metadata', () => {
     expect(suffixed).toEqual(root);
   });
 
+  test('openai-apps-challenge returns the bare verification token', async () => {
+    const res = await workerFetch(`${ORIGIN}/.well-known/openai-apps-challenge`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/plain');
+    expect(await res.text()).toBe('aISjU07uP03oCvzddyqevt6uqiD5mGLQ05CQFNG0o_o');
+  });
+
   test('openid-configuration is a cacheable 404, not a 401', async () => {
     const res = await workerFetch(`${ORIGIN}/.well-known/openid-configuration`);
     expect(res.status).toBe(404);

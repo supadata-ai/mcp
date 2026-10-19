@@ -34,6 +34,11 @@ const METADATA_CACHE_CONTROL = 'public, max-age=3600';
 // identifier the URL was built from, so the /mcp variant names /mcp. The value
 // never reaches a token audience: `resource` is stripped before the grant and
 // the token exchange (see below and auth-handler.ts).
+// ChatGPT app directory domain verification. The verifier drops the MCP URL's
+// path and fetches this from the origin root; the token is public by design.
+const OPENAI_APPS_CHALLENGE_PATH = '/.well-known/openai-apps-challenge';
+const OPENAI_APPS_CHALLENGE_TOKEN = 'aISjU07uP03oCvzddyqevt6uqiD5mGLQ05CQFNG0o_o';
+
 const PROTECTED_RESOURCES: Record<string, string> = {
   '/.well-known/oauth-protected-resource': 'https://api.supadata.ai',
   '/.well-known/oauth-protected-resource/mcp': 'https://api.supadata.ai/mcp',
@@ -216,6 +221,13 @@ export default {
     // Health check
     if (url.pathname === '/' && request.method === 'GET') {
       return new Response('Supadata MCP Worker is running.', {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain' },
+      });
+    }
+
+    if (url.pathname === OPENAI_APPS_CHALLENGE_PATH) {
+      return new Response(OPENAI_APPS_CHALLENGE_TOKEN, {
         status: 200,
         headers: { 'Content-Type': 'text/plain' },
       });

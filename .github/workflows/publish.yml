@@ -1,9 +1,12 @@
 name: Release
 
-# Releases a version once, when its number reaches main: deploys the hosted
-# Worker, publishes to npm and the MCP Registry, then tags it and creates the
-# GitHub release. The tag is created last and marks the version as done, so a
-# failed run can be re-run: the steps before it are safe to repeat.
+# Releases a version once, when its number reaches main: publishes to npm and
+# the MCP Registry, then tags it and creates the GitHub release. The tag is
+# created last and marks the version as done, so a failed run can be re-run:
+# the steps before it are safe to repeat.
+#
+# The hosted Worker is not deployed here: Cloudflare Workers Builds deploys
+# every push to main.
 #
 # Keep this file name: npm trusted publishing is configured for publish.yml.
 
@@ -65,13 +68,6 @@ jobs:
       - name: Test
         if: steps.version.outputs.new == 'true'
         run: npm test
-
-      - name: Deploy hosted server (Cloudflare Worker)
-        if: steps.version.outputs.new == 'true'
-        run: npx --yes wrangler@4.151.3 deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Publish to npm
         if: steps.version.outputs.new == 'true'

@@ -137,6 +137,9 @@ The server can be deployed via:
 - **Docker**: Using provided Dockerfile
 - **MCP Integrations**: Cursor, VS Code, Claude Desktop, Windsurf
 
+### Releasing
+Bump the version in a PR (`npm version patch --no-git-tag-version`, which also syncs `src/version.ts` and `server.json`) and add a `CHANGELOG.md` section for it. When the PR merges, `.github/workflows/publish.yml` publishes to npm and the MCP Registry, and tags and creates the GitHub release; pushes that don't change the version release nothing. The hosted Worker is deployed separately by Cloudflare Workers Builds on every push to `main`, so don't run `wrangler deploy` by hand.
+
 ## Development Notes
 
 - Uses TypeScript with strict mode enabled

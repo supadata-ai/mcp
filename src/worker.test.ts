@@ -371,6 +371,14 @@ describe('/oauth/authorize', () => {
     const authorizeRes = await workerFetch((await authorizationUrl(client.client_id)).toString());
     const dashboardUrl = new URL(authorizeRes.headers.get('location')!);
     expect(dashboardUrl.searchParams.get('redirect_uri')).toBe(REDIRECT_URI);
+    const { signHandoff } = await import('./auth-handler.js');
+    expect(dashboardUrl.searchParams.get('sig')).toBe(
+      await signHandoff(JWT_SECRET, [
+        dashboardUrl.searchParams.get('state')!,
+        REDIRECT_URI,
+        dashboardUrl.searchParams.get('client') ?? '',
+      ])
+    );
     const callbackUrl = new URL(dashboardUrl.searchParams.get('callback')!);
     callbackUrl.searchParams.set('state', dashboardUrl.searchParams.get('state')!);
     callbackUrl.searchParams.set('token', await dashboardToken());

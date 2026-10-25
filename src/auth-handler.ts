@@ -57,6 +57,18 @@ async function createState(
   return { stateToken, binding };
 }
 
+export async function signHandoff(secret: string, parts: string[]): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(parts.join('\n')));
+  return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 function timingSafeEqual(a: string, b: string): boolean {
   const left = new TextEncoder().encode(a);
   const right = new TextEncoder().encode(b);
@@ -139,6 +151,13 @@ app.get('/oauth/authorize', async (c) => {
   if (clientName) {
     dashboardUrl.searchParams.set('client', clientName);
   }
+  // Lets the dashboard verify the hand-off hints it shows on the consent
+  // screen: hex HMAC-SHA256 with MCP_JWT_SECRET over
+  // `${state}\n${redirect_uri}\n${client}` (client is '' when absent).
+  dashboardUrl.searchParams.set(
+    'sig',
+    await signHandoff(c.env.MCP_JWT_SECRET, [stateToken, oauthReqInfo.redirectUri, clientName ?? ''])
+  );
 
   console.log('[Auth] Redirecting to dashboard:', dashboardUrl.toString());
   return c.redirect(dashboardUrl.toString());

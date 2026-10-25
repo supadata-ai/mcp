@@ -98,6 +98,30 @@ describe('mcp tool registry', () => {
     expect(parsed.searchParams.has('lang')).toBe(false);
   });
 
+  test.each([
+    ['supadata_check_transcript_status', '/v1/transcript/'],
+    ['supadata_check_crawl_status', '/v1/web/crawl/'],
+    ['supadata_check_extract_status', '/v1/extract/'],
+  ])('%s keeps the job id inside one path segment', async (tool, prefix) => {
+    const urls: string[] = [];
+    (globalThis as any).fetch = jest.fn(async (url: string) => {
+      urls.push(url);
+      return { ok: true, status: 200, json: async () => ({ status: 'completed' }) };
+    });
+    for (const id of ['../me', '%2e%2e/me', '..\\me', 'x?y=1#z']) {
+      await callTool(tool, { id }, CTX);
+    }
+    for (const url of urls) {
+      const parsed = new URL(url);
+      expect(parsed.pathname.startsWith(prefix)).toBe(true);
+      expect(parsed.pathname.slice(prefix.length)).not.toContain('/');
+      expect(parsed.search).toBe('');
+    }
+    await expect(callTool(tool, { id: '..' }, CTX)).rejects.toThrow('Invalid job id');
+    await expect(callTool(tool, { id: '.' }, CTX)).rejects.toThrow('Invalid job id');
+    expect(urls).toHaveLength(4);
+  });
+
   test('supadata_check_transcript_status adds a polling hint while in progress', async () => {
     fetchMock.mockImplementationOnce(async () => ({
       ok: true,

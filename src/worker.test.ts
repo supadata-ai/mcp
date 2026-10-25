@@ -134,9 +134,21 @@ async function authorize(authorizationUrl: URL | string): Promise<URL> {
   const callbackUrl = new URL(dashboardUrl.searchParams.get('callback')!);
   callbackUrl.searchParams.set('state', dashboardUrl.searchParams.get('state')!);
   callbackUrl.searchParams.set('token', await dashboardToken());
-  const callbackRes = await workerFetch(callbackUrl.toString());
+  const callbackRes = await workerFetch(callbackUrl.toString(), {
+    headers: { Cookie: bindingCookie(authorizeRes) },
+  });
   expect(callbackRes.status).toBe(302);
   return new URL(callbackRes.headers.get('location')!);
+}
+
+// The name=value part of the binding cookie /oauth/authorize sets
+function bindingCookie(authorizeRes: Response): string {
+  const setCookie = authorizeRes.headers.get('set-cookie') || '';
+  expect(setCookie).toMatch(/^__Host-mcp_auth_[0-9a-f-]+=[^;]+;/);
+  expect(setCookie).toContain('HttpOnly');
+  expect(setCookie).toContain('Secure');
+  expect(setCookie).toContain('SameSite=Lax');
+  return setCookie.split(';')[0];
 }
 
 describe('discovery metadata', () => {
@@ -286,6 +298,22 @@ function tokenErrorLogs(): Array<Record<string, any>> {
 const INVALID_TOKEN_CHALLENGE = `Bearer realm="OAuth", error="invalid_token"`;
 
 describe('/mcp without credentials', () => {
+  test('a SUPADATA_API_KEY worker secret is never used for header-less requests', async () => {
+    const variants: Array<Record<string, string>> = [{}, { Authorization: 'Bearer user-1:grant-1:nope' }];
+    for (const headers of variants) {
+      const res = await worker.fetch(
+        new Request(MCP_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: '{}',
+        }),
+        { ...env, SUPADATA_API_KEY: 'operator-key' },
+        { waitUntil() {}, passThroughOnException() {}, props: undefined }
+      );
+      expect(res.status).toBe(401);
+    }
+  });
+
   test('returns 401 pointing at the protected resource metadata', async () => {
     const res = await workerFetch(MCP_URL, {
       method: 'POST',
@@ -336,6 +364,28 @@ describe('/oauth/authorize', () => {
     const res = await workerFetch(url.toString());
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: 'invalid_client' });
+  });
+
+  test('the callback needs the binding cookie of the browser that started it', async () => {
+    const client = await registerClient();
+    const authorizeRes = await workerFetch((await authorizationUrl(client.client_id)).toString());
+    const dashboardUrl = new URL(authorizeRes.headers.get('location')!);
+    expect(dashboardUrl.searchParams.get('redirect_uri')).toBe(REDIRECT_URI);
+    const callbackUrl = new URL(dashboardUrl.searchParams.get('callback')!);
+    callbackUrl.searchParams.set('state', dashboardUrl.searchParams.get('state')!);
+    callbackUrl.searchParams.set('token', await dashboardToken());
+
+    const noCookie = await workerFetch(callbackUrl.toString());
+    expect(noCookie.status).toBe(400);
+    const wrongCookie = await workerFetch(callbackUrl.toString(), {
+      headers: { Cookie: bindingCookie(authorizeRes).replace(/=.*/, '=forged') },
+    });
+    expect(wrongCookie.status).toBe(400);
+
+    // A failed attempt doesn't consume the state: the right browser still completes it
+    const ok = await workerFetch(callbackUrl.toString(), { headers: { Cookie: bindingCookie(authorizeRes) } });
+    expect(ok.status).toBe(302);
+    expect(new URL(ok.headers.get('location')!).searchParams.get('code')).toBeTruthy();
   });
 
   test('stores the pending request for an hour', async () => {

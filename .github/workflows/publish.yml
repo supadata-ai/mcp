@@ -21,6 +21,11 @@ concurrency:
 
 jobs:
   release:
+    # Only main publishes, also when dispatched by hand. The environment lets
+    # GitHub restrict releases to main (deployment branch rule) and lets npm
+    # trusted publishing require it.
+    if: github.ref == 'refs/heads/main'
+    environment: release
     runs-on: ubuntu-latest
     permissions:
       contents: write # tag and GitHub release

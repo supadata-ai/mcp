@@ -231,11 +231,8 @@ export default {
       return handleMcpWithApiKey(request, apiKey);
     }
 
-    // Also support SUPADATA_API_KEY env var for direct POST to /mcp (backward compat)
-    if (!apiKey && env.SUPADATA_API_KEY && url.pathname === '/mcp' && request.method === 'POST') {
-      console.log(`Using env SUPADATA_API_KEY (length: ${env.SUPADATA_API_KEY.length})`);
-      return handleMcpWithApiKey(request, env.SUPADATA_API_KEY);
-    }
+    // Requests without an API key go through OAuth below. The worker never
+    // falls back to an operator key: that would let anonymous callers spend it.
 
     // Serve OAuth Protected Resource Metadata (RFC 9728)
     const protectedResource = PROTECTED_RESOURCES[url.pathname];

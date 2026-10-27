@@ -39,6 +39,16 @@ export function buildUserAgent(client: string, transport: Transport) {
   return `supadata-mcp/${VERSION} (${client}; ${transport})`;
 }
 
+// A job id becomes one path segment of the status URL. Encode it and refuse
+// dot segments, so an id can't move the request to another API path.
+function jobIdSegment(id: unknown): string {
+  const value = String(id);
+  if (value === '.' || value === '..') {
+    throw new Error(`Invalid job id: ${value}`);
+  }
+  return encodeURIComponent(value);
+}
+
 async function callSupadata(path: string, args: any, ctx: RequestContext, method: 'GET' | 'POST' = 'GET') {
   console.error(`[MCP] Calling Supadata: ${method} ${path}, Key length: ${ctx.apiKey?.length ?? 0}, UA: ${ctx.userAgent}`);
 
@@ -224,7 +234,7 @@ const toolRegistry = {
     },
     handler: async (args: any, ctx: RequestContext) => {
       const id = args.id;
-      const result = await callSupadata(`/transcript/${id}`, {}, ctx, 'GET');
+      const result = await callSupadata(`/transcript/${jobIdSegment(id)}`, {}, ctx, 'GET');
       return addPollingHint(result, 'supadata_check_transcript_status', id);
     },
   },
@@ -349,7 +359,7 @@ const toolRegistry = {
     },
     handler: async (args: any, ctx: RequestContext) => {
       const id = args.id;
-      const result = await callSupadata(`/web/crawl/${id}`, {}, ctx, 'GET');
+      const result = await callSupadata(`/web/crawl/${jobIdSegment(id)}`, {}, ctx, 'GET');
       return addPollingHint(result, 'supadata_check_crawl_status', id, ['scraping']);
     },
   },
@@ -441,7 +451,7 @@ const toolRegistry = {
     },
     handler: async (args: any, ctx: RequestContext) => {
       const id = args.id;
-      const result = await callSupadata(`/extract/${id}`, {}, ctx, 'GET');
+      const result = await callSupadata(`/extract/${jobIdSegment(id)}`, {}, ctx, 'GET');
       return addPollingHint(result, 'supadata_check_extract_status', id);
     },
   },

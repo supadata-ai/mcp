@@ -98,7 +98,7 @@ The server integrates with Supadata's JavaScript SDK (`@supadata/js`) and provid
 ## Configuration
 
 ### Required Environment Variables
-- `SUPADATA_API_KEY` - Supadata API key for authentication
+- `SUPADATA_API_KEY` - Supadata API key for authentication (stdio server only; the hosted Worker never reads it)
 
 ### Optional Environment Variables
 - `SUPADATA_RETRY_MAX_ATTEMPTS` - Max retry attempts (default: 3)

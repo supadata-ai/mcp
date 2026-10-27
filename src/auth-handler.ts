@@ -1,5 +1,6 @@
 import { AuthorizationError, type AuthRequest, type OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 import { Hono } from 'hono';
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { jwtVerify } from 'jose';
 
 import { sanitizeClientName } from './client.js';
@@ -29,19 +30,52 @@ async function lookupClientName(
   }
 }
 
+// 1 hour: a new user may have to sign up and verify their email first
+const STATE_TTL_SECONDS = 3600;
+
+type StoredState = { request: AuthRequest; binding: string };
+
+// The browser that started an authorization gets a cookie with a random
+// binding value, and the callback must present it. A state started anywhere
+// else (an attacker's /oauth/authorize, then a dashboard link sent to a victim)
+// can't be completed in another browser.
+function bindingCookieName(stateToken: string) {
+  return `__Host-mcp_auth_${stateToken}`;
+}
+
 // Store OAuth request info in KV, keyed by a random state token
 async function createState(
   oauthReqInfo: AuthRequest,
   kv: KVNamespace
-): Promise<string> {
+): Promise<{ stateToken: string; binding: string }> {
   const stateToken = crypto.randomUUID();
-  await kv.put(
-    `oauth_state:${stateToken}`,
-    JSON.stringify(oauthReqInfo),
-    // 1 hour: a new user may have to sign up and verify their email first
-    { expirationTtl: 3600 }
+  const binding = crypto.randomUUID();
+  const stored: StoredState = { request: oauthReqInfo, binding };
+  await kv.put(`oauth_state:${stateToken}`, JSON.stringify(stored), {
+    expirationTtl: STATE_TTL_SECONDS,
+  });
+  return { stateToken, binding };
+}
+
+export async function signHandoff(secret: string, parts: string[]): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
   );
-  return stateToken;
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(parts.join('\n')));
+  return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  const left = new TextEncoder().encode(a);
+  const right = new TextEncoder().encode(b);
+  if (left.length !== right.length) return false;
+  let diff = 0;
+  for (let i = 0; i < left.length; i++) diff |= left[i] ^ right[i];
+  return diff === 0;
 }
 
 // parseAuthRequest throws for an unknown client_id or a redirect_uri that isn't
@@ -96,17 +130,34 @@ app.get('/oauth/authorize', async (c) => {
     return c.text('Invalid request: missing client_id', 400);
   }
 
-  const stateToken = await createState(oauthReqInfo, c.env.OAUTH_KV);
+  const { stateToken, binding } = await createState(oauthReqInfo, c.env.OAUTH_KV);
+  setCookie(c, bindingCookieName(stateToken), binding, {
+    path: '/',
+    secure: true,
+    httpOnly: true,
+    sameSite: 'Lax',
+    maxAge: STATE_TTL_SECONDS,
+  });
 
   const callbackUrl = new URL('/oauth/callback', c.req.url).href;
   const dashboardUrl = new URL('/oauth/mcp', c.env.DASHBOARD_URL);
   dashboardUrl.searchParams.set('state', stateToken);
   dashboardUrl.searchParams.set('callback', callbackUrl);
+  // Where the grant goes, so the consent screen can show it. The binding
+  // cookie means only a request this worker built can be completed.
+  dashboardUrl.searchParams.set('redirect_uri', oauthReqInfo.redirectUri);
   // Lets the dashboard attribute the MCP connection to an AI client.
   const clientName = await lookupClientName(c.env.OAUTH_PROVIDER, oauthReqInfo.clientId);
   if (clientName) {
     dashboardUrl.searchParams.set('client', clientName);
   }
+  // Lets the dashboard verify the hand-off hints it shows on the consent
+  // screen: hex HMAC-SHA256 with MCP_JWT_SECRET over
+  // `${state}\n${redirect_uri}\n${client}` (client is '' when absent).
+  dashboardUrl.searchParams.set(
+    'sig',
+    await signHandoff(c.env.MCP_JWT_SECRET, [stateToken, oauthReqInfo.redirectUri, clientName ?? ''])
+  );
 
   console.log('[Auth] Redirecting to dashboard:', dashboardUrl.toString());
   return c.redirect(dashboardUrl.toString());
@@ -134,15 +185,28 @@ app.get('/oauth/callback', async (c) => {
     return c.text('Invalid or expired state', 400);
   }
 
-  // Delete state to prevent replay
-  await c.env.OAUTH_KV.delete(`oauth_state:${stateToken}`);
-
-  let oauthReqInfo: AuthRequest;
+  let stored: StoredState;
   try {
-    oauthReqInfo = JSON.parse(storedState);
+    stored = JSON.parse(storedState);
   } catch {
     return c.text('Corrupted state data', 400);
   }
+
+  const cookieName = bindingCookieName(stateToken);
+  const binding = getCookie(c, cookieName);
+  if (!binding || typeof stored.binding !== 'string' || !timingSafeEqual(binding, stored.binding)) {
+    console.warn('[Auth] Callback without the binding cookie of its state');
+    return c.text(
+      'This sign-in was started in a different browser. Start connecting again from your AI client.',
+      400
+    );
+  }
+
+  // Delete state to prevent replay
+  await c.env.OAUTH_KV.delete(`oauth_state:${stateToken}`);
+  deleteCookie(c, cookieName, { path: '/', secure: true });
+
+  const oauthReqInfo = stored.request;
 
   // Validate the JWT from the dashboard
   let payload;

@@ -2,7 +2,34 @@
 
 [![supadata-ai/mcp MCP server](https://glama.ai/mcp/servers/@supadata-ai/mcp/badges/score.svg)](https://glama.ai/mcp/servers/@supadata-ai/mcp)
 
-A Model Context Protocol (MCP) server that integrates with [Supadata](https://supadata.ai) for video transcript extraction, web scraping, crawling, and site discovery.
+Use [Supadata](https://supadata.ai) in your AI agent: video transcripts, media metadata, web scraping, crawling, and site discovery. This repository is the Supadata MCP server (Model Context Protocol), which AI agents like Claude, ChatGPT and Cursor use to call Supadata.
+
+## Add to your AI agent
+
+[![Add to Claude][badge-claude]](https://claude.ai/directory/supadata) [![Add to ChatGPT][badge-chatgpt]](https://chatgpt.com/plugins/plugin_asdk_app_6ad667a8ae4881919cbe3d48dbc3d759) [![Add to Cursor][badge-cursor]](https://cursor.com/en-US/install-mcp?name=supadata&config=eyJ1cmwiOiJodHRwczovL2FwaS5zdXBhZGF0YS5haS9tY3AifQ==)
+
+Click a button, then sign in with your Supadata account. No API key to copy.
+
+- **Claude:** click **Add to Claude**, click **Connect** and sign in. Works in claude.ai, Claude Desktop and the mobile apps. On Team/Enterprise plans an Owner enables Supadata first in Admin settings → Connectors.
+- **ChatGPT:** click **Add to ChatGPT**, click **Connect** and sign in.
+- **Cursor:** click **Add to Cursor**, confirm **Install**, and Cursor opens the Supadata sign-in page.
+
+**Claude Code / Codex**
+
+```bash
+# Claude Code: then run /mcp and choose Authenticate
+claude mcp add --transport http supadata https://api.supadata.ai/mcp
+
+# Codex
+codex mcp add supadata --url https://api.supadata.ai/mcp
+codex mcp login supadata
+```
+
+Other MCP clients can connect to the hosted server at `https://api.supadata.ai/mcp` (OAuth, or an `x-api-key` header), or run the local server below.
+
+[badge-claude]: https://img.shields.io/badge/Add_to_Claude-D97757?style=for-the-badge&logo=claude&logoColor=white
+[badge-chatgpt]: https://img.shields.io/badge/Add_to_ChatGPT-000000?style=for-the-badge&logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0yMi4yODE5IDkuODIxMWE1Ljk4NDcgNS45ODQ3IDAgMCAwLS41MTU3LTQuOTEwOCA2LjA0NjIgNi4wNDYyIDAgMCAwLTYuNTA5OC0yLjlBNi4wNjUxIDYuMDY1MSAwIDAgMCA0Ljk4MDcgNC4xODE4YTUuOTg0NyA1Ljk4NDcgMCAwIDAtMy45OTc3IDIuOSA2LjA0NjIgNi4wNDYyIDAgMCAwIC43NDI3IDcuMDk2NiA1Ljk4IDUuOTggMCAwIDAgLjUxMSA0LjkxMDcgNi4wNTEgNi4wNTEgMCAwIDAgNi41MTQ2IDIuOTAwMUE1Ljk4NDcgNS45ODQ3IDAgMCAwIDEzLjI1OTkgMjRhNi4wNTU3IDYuMDU1NyAwIDAgMCA1Ljc3MTgtNC4yMDU4IDUuOTg5NCA1Ljk4OTQgMCAwIDAgMy45OTc3LTIuOTAwMSA2LjA1NTcgNi4wNTU3IDAgMCAwLS43NDc1LTcuMDcyOXptLTkuMDIyIDEyLjYwODFhNC40NzU1IDQuNDc1NSAwIDAgMS0yLjg3NjQtMS4wNDA4bC4xNDE5LS4wODA0IDQuNzc4My0yLjc1ODJhLjc5NDguNzk0OCAwIDAgMCAuMzkyNy0uNjgxM3YtNi43MzY5bDIuMDIgMS4xNjg2YS4wNzEuMDcxIDAgMCAxIC4wMzguMDUydjUuNTgyNmE0LjUwNCA0LjUwNCAwIDAgMS00LjQ5NDUgNC40OTQ0em0tOS42NjA3LTQuMTI1NGE0LjQ3MDggNC40NzA4IDAgMCAxLS41MzQ2LTMuMDEzN2wuMTQyLjA4NTIgNC43ODMgMi43NTgyYS43NzEyLjc3MTIgMCAwIDAgLjc4MDYgMGw1Ljg0MjgtMy4zNjg1djIuMzMyNGEuMDgwNC4wODA0IDAgMCAxLS4wMzMyLjA2MTVMOS43NCAxOS45NTAyYTQuNDk5MiA0LjQ5OTIgMCAwIDEtNi4xNDA4LTEuNjQ2NHpNMi4zNDA4IDcuODk1NmE0LjQ4NSA0LjQ4NSAwIDAgMSAyLjM2NTUtMS45NzI4VjExLjZhLjc2NjQuNzY2NCAwIDAgMCAuMzg3OS42NzY1bDUuODE0NCAzLjM1NDMtMi4wMjAxIDEuMTY4NWEuMDc1Ny4wNzU3IDAgMCAxLS4wNzEgMGwtNC44MzAzLTIuNzg2NUE0LjUwNCA0LjUwNCAwIDAgMSAyLjM0MDggNy44NzJ6bTE2LjU5NjMgMy44NTU4TDEzLjEwMzggOC4zNjQgMTUuMTE5MiA3LjJhLjA3NTcuMDc1NyAwIDAgMSAuMDcxIDBsNC44MzAzIDIuNzkxM2E0LjQ5NDQgNC40OTQ0IDAgMCAxLS42NzY1IDguMTA0MnYtNS42NzcyYS43OS43OSAwIDAgMC0uNDA3LS42Njd6bTIuMDEwNy0zLjAyMzFsLS4xNDItLjA4NTItNC43NzM1LTIuNzgxOGEuNzc1OS43NzU5IDAgMCAwLS43ODU0IDBMOS40MDkgOS4yMjk3VjYuODk3NGEuMDY2Mi4wNjYyIDAgMCAxIC4wMjg0LS4wNjE1bDQuODMwMy0yLjc4NjZhNC40OTkyIDQuNDk5MiAwIDAgMSA2LjY4MDIgNC42NnpNOC4zMDY1IDEyLjg2M2wtMi4wMi0xLjE2MzhhLjA4MDQuMDgwNCAwIDAgMS0uMDM4LS4wNTY3VjYuMDc0MmE0LjQ5OTIgNC40OTkyIDAgMCAxIDcuMzc1Ny0zLjQ1MzdsLS4xNDIuMDgwNUw4LjcwNCA1LjQ1OWEuNzk0OC43OTQ4IDAgMCAwLS4zOTI3LjY4MTN6bTEuMDk3Ni0yLjM2NTRsMi42MDItMS40OTk4IDIuNjA2OSAxLjQ5OTh2Mi45OTk0bC0yLjU5NzQgMS40OTk3LTIuNjA2Ny0xLjQ5OTdaIi8+PC9zdmc+
+[badge-cursor]: https://img.shields.io/badge/Add_to_Cursor-000000?style=for-the-badge&logo=cursor&logoColor=white
 
 ## Features
 
@@ -13,14 +40,15 @@ A Model Context Protocol (MCP) server that integrates with [Supadata](https://su
 
 ## Installation
 
-For setup instructions for Claude, ChatGPT, Cursor, Windsurf, VS Code, and other clients, see the [integration guide](https://docs.supadata.ai/integrations/mcp).
+For step-by-step setup in Claude, ChatGPT, Cursor, Claude Code, Codex, Windsurf, VS Code and other AI agents, see the [AI agents guide](https://docs.supadata.ai/integrations/mcp).
 
 ## Running
 
 ### Stdio (default)
 
-Running the package starts an MCP server on stdio. This is what MCP clients
-(Claude Desktop, Cursor, VS Code, Windsurf, ...) use when they spawn the server:
+Running the package starts an MCP server on stdio. Use this when your AI agent
+should spawn the server locally with your API key instead of using the hosted
+server (for example a custom agent, or VS Code / Windsurf config files):
 
 ```bash
 SUPADATA_API_KEY=your-api-key npx -y @supadata/mcp
